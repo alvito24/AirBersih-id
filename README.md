@@ -1,3 +1,14 @@
+# Air-Bersih.id 
+## Anggota Kelompok SYNC
+1. Bill Stephen Jacob Sembiring_Technopreneur
+2. Ladyaris Khalishah_UI/UX
+3. Muhammad Fathir Rizky Salam_UIUX
+4. Alvito March Vieri Nanda Sulistyo_Software Development
+5. Farrel Raza Sigak Amrullah_Software Development
+6. Naufal Muammar Zatnika_Technopreneur
+7. Maya Radina Putri_Technopreneur
+8. Erdwina Nabilah Putri_Intelligence System
+
 # AirBersih.id Backend
 
 Backend Sprint 1 untuk AirBersih.id / SYNC. Scope saat ini mencakup fondasi backend SYNC-59 dan auth/RBAC SYNC-60.
