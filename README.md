@@ -782,3 +782,203 @@ Expected: `403 FORBIDDEN`.
 ### BMKG Placeholder
 
 BMKG adapter is a placeholder in SYNC-66. It does not make external calls, does not require an API key, and does not add dependencies. Production BMKG integration should wait until the API contract and credential handling are clear.
+
+## SYNC-67 Pump Control MQTT
+
+SYNC-67 implements basic remote pump control for `PENGURUS_RT_RW` only. It uses REST to publish MQTT commands and subscribes to pump status MQTT messages. WebSocket broadcast and pump schedules are TODO/out of scope.
+
+### Required Migration
+
+Run the pump audit patch after migration 002:
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/004_patch_pump_operation_logs_audit_fields.sql
+```
+
+This adds nullable audit fields to `pump_operation_logs`:
+
+- `operator_user_id`
+- `command_source`
+- `publish_status`
+
+### Required Pump Seed
+
+Make sure `TANK-001` and `NODE-001` exist first, then seed `PUMP-001` with explicit relations:
+
+```sql
+INSERT INTO pumps (
+  pump_code,
+  tank_id,
+  node_id,
+  current_status,
+  last_command_at,
+  last_confirmed_at,
+  created_at
+)
+SELECT
+  'PUMP-001',
+  wt.id,
+  sn.id,
+  'OFF',
+  NULL,
+  NULL,
+  NOW()
+FROM water_tanks wt
+JOIN sensor_nodes sn ON sn.node_code = 'NODE-001'
+WHERE wt.tank_code = 'TANK-001'
+  AND NOT EXISTS (SELECT 1 FROM pumps WHERE pump_code = 'PUMP-001');
+```
+
+Notes:
+
+- `TANK-001` and `NODE-001` must exist before seeding `PUMP-001`.
+- Initial `current_status = 'OFF'` is a local placeholder for manual testing.
+- If your local schema rejects `OFF`, check the allowed status values in your database.
+- If the pump is already seeded, do not duplicate it.
+
+### Pump Topics
+
+Control publish topic:
+
+```text
+airbersih/pump/PUMP-001/control
+```
+
+Payload must use `command`:
+
+```json
+{ "command": "ON" }
+```
+
+```json
+{ "command": "OFF" }
+```
+
+Do not use `action`.
+
+Status subscribe topic:
+
+```text
+airbersih/pump/PUMP-001/status
+```
+
+Status payload:
+
+```json
+{
+  "pump_id": "PUMP-001",
+  "status": "ON",
+  "source": "AUTO"
+}
+```
+
+### Pump Endpoints
+
+All pump endpoints are restricted to JWT role `PENGURUS_RT_RW` only.
+
+- `POST /api/v1/pumps/:pump_code/control`
+- `GET /api/v1/pumps/:pump_code/status`
+- `GET /api/v1/pumps/:pump_code/logs`
+
+WARGA, ADMIN_SISTEM, and MITRA_TUKANG must receive `403 FORBIDDEN`.
+
+### Pump Manual Tests
+
+Control while MQTT is disabled should return `503 MQTT_NOT_READY` and server must not crash:
+
+```env
+MQTT_ENABLED=false
+```
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"ON\"}"
+```
+
+Invalid command should return `400 VALIDATION_ERROR`:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"START\"}"
+```
+
+WARGA control/status/logs should return `403 FORBIDDEN`:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
+  -H "Authorization: Bearer <WARGA_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"ON\"}"
+```
+
+With `MQTT_ENABLED=true` and valid HiveMQ credentials, Pengurus control ON should publish `{ "command": "ON" }`:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"ON\"}"
+```
+
+Control OFF:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"OFF\"}"
+```
+
+MQTT mock pump status:
+
+```text
+airbersih/pump/PUMP-001/status
+```
+
+```json
+{
+  "pump_id": "PUMP-001",
+  "status": "ON",
+  "source": "AUTO"
+}
+```
+
+Expected: status log is stored in `pump_operation_logs`, `pumps.current_status` becomes `ON`, and `pumps.last_confirmed_at` is updated.
+
+Get status:
+
+```cmd
+curl http://localhost:5000/api/v1/pumps/PUMP-001/status ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>"
+```
+
+Get logs:
+
+```cmd
+curl http://localhost:5000/api/v1/pumps/PUMP-001/logs ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>"
+```
+
+DB check:
+
+```sql
+SELECT p.pump_code, pol.command, pol.status, pol.source, pol.command_source,
+       pol.publish_status, pol.operator_user_id, pol.raw_payload,
+       pol.received_at, pol.created_at
+FROM pump_operation_logs pol
+JOIN pumps p ON p.id = pol.pump_id
+WHERE p.pump_code = 'PUMP-001'
+ORDER BY pol.received_at DESC
+LIMIT 10;
+```
+
+Regression tests after MQTT service update:
+
+- Quality topic still works: `airbersih/sensor/NODE-001/quality`
+- Tank topic still works: `airbersih/tank/TANK-001/status`
+
+Both should continue to parse, validate, and persist messages as documented in SYNC-62 and SYNC-64.

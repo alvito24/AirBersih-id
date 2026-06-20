@@ -1,0 +1,8 @@
+BEGIN;
+
+ALTER TABLE pump_operation_logs
+  ADD COLUMN IF NOT EXISTS operator_user_id BIGINT NULL REFERENCES users(id),
+  ADD COLUMN IF NOT EXISTS command_source VARCHAR(50) NULL,
+  ADD COLUMN IF NOT EXISTS publish_status VARCHAR(50) NULL;
+
+COMMIT;
