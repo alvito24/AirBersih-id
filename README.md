@@ -258,3 +258,401 @@ Checklist:
 - Token blacklist belum diimplementasikan; logout stateless untuk Sprint 1.
 - Endpoint fitur IoT, billing, marketplace, MQTT, FCM, WebSocket, dan dashboard belum diimplementasikan.
 - Pastikan PostgreSQL CLI `psql` tersedia di PATH sebelum menjalankan migration atau seed.
+
+## SYNC-62 Water Quality MQTT Ingestion
+
+SYNC-62 implements Water Quality MQTT Ingestion + Quality Read API only. It does not implement alert automation, tank, pump, billing, soil, marketplace, WebSocket, or auth/RBAC changes.
+
+### Required Migration Patch
+
+Run the Sprint 1 migration first, then run the IoT raw field patch before testing quality ingestion.
+
+```cmd
+npm run db:migrate
+```
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/002_add_iot_raw_fields.sql
+```
+
+The patch adds `water_quality_readings.turbidity_raw`, `source`, and `raw_payload`, and makes `turbidity_ntu`/`recorded_at` nullable for raw MQTT data. Do not edit `001_create_sprint1_schema.sql`.
+
+### Required Sensor Node
+
+Quality ingestion maps `payload.node_id` to `sensor_nodes.node_code`. Insert `NODE-001` before MQTT or REST fallback testing if it does not exist yet.
+
+```sql
+INSERT INTO sensor_nodes (node_code, node_type, location_name)
+VALUES ('NODE-001', 'WATER_QUALITY', 'Demo Node 001')
+ON CONFLICT (node_code) DO NOTHING;
+```
+
+### Device API Key
+
+REST fallback write endpoint requires `X-API-Key` matching `.env`.
+
+```env
+DEVICE_API_KEY=change_this_device_api_key
+```
+
+### MQTT Config
+
+MQTT is disabled by default. Set these values in `.env` to connect to HiveMQ Cloud.
+
+```env
+MQTT_ENABLED=true
+MQTT_HOST=your-hivemq-host
+MQTT_PORT=8883
+MQTT_USERNAME=your-hivemq-username
+MQTT_PASSWORD=your-hivemq-password
+MQTT_PROTOCOL=mqtts
+MQTT_CLIENT_ID=airbersih-backend-dev
+```
+
+When `MQTT_ENABLED=false`, the server still starts and logs that MQTT is disabled.
+
+### Quality Endpoints
+
+- `POST /api/v1/sensor/reading` - REST fallback ingestion, requires `X-API-Key`.
+- `GET /api/v1/quality/current?node_id=NODE-001` - latest reading, requires JWT role `WARGA` or `PENGURUS_RT_RW`.
+- `GET /api/v1/quality/history?node_id=NODE-001&from=YYYY-MM-DD&to=YYYY-MM-DD` - history filtered by `received_at`, requires JWT role `WARGA` or `PENGURUS_RT_RW`.
+
+### REST Fallback Test
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/sensor/reading ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: change_this_device_api_key" ^
+  -d "{\"node_id\":\"NODE-001\",\"turbidity_raw\":2875,\"status_category\":\"TURBID\",\"timestamp\":null}"
+```
+
+Invalid payload example:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/sensor/reading ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: change_this_device_api_key" ^
+  -d "{\"node_id\":\"NODE-001\",\"status_category\":\"BAD\",\"timestamp\":null}"
+```
+
+### MQTT Mock Test
+
+Publish to topic:
+
+```text
+airbersih/sensor/NODE-001/quality
+```
+
+Payload:
+
+```json
+{
+  "node_id": "NODE-001",
+  "turbidity_raw": 2875,
+  "status_category": "TURBID",
+  "timestamp": null
+}
+```
+
+Expected result: backend stores `turbidity_raw` as raw ADC, leaves `turbidity_ntu` null, stores `raw_payload`, fills `received_at` with server time, and updates `sensor_nodes.last_ping_at`.
+
+Invalid JSON or invalid payload should be logged and ignored without crashing the server.
+
+### Quality Read Tests
+
+Use a JWT from a `WARGA` or `PENGURUS_RT_RW` user.
+
+```cmd
+curl "http://localhost:5000/api/v1/quality/current?node_id=NODE-001" ^
+  -H "Authorization: Bearer <token>"
+```
+
+```cmd
+curl "http://localhost:5000/api/v1/quality/history?node_id=NODE-001&from=2026-01-01&to=2026-01-31" ^
+  -H "Authorization: Bearer <token>"
+```
+
+Expected edge cases:
+
+- Unknown node returns `404 NODE_NOT_FOUND`.
+- Empty history returns `200 OK` with `items: []` and `total: 0`.
+- Legacy roles `ADMIN_SISTEM` and `MITRA_TUKANG` are not allowed on new quality read endpoints.
+
+## SYNC-63 Alert Basic
+
+SYNC-63 implements Alert Basic from quality readings. It does not implement production FCM, Bull Queue, Redis, frontend notification UI, marketplace, admin dashboard, tank, pump control, billing, or soil features.
+
+### Alert Rules
+
+- Automatic alert creation is enabled only for `status_category = UNSAFE` in MVP basic.
+- `UNSAFE` creates a `WATER_QUALITY` alert with `alert_level = CRITICAL` and `status = ACTIVE`.
+- `MILD_TURBID -> WARNING` and `TURBID -> DANGER` mapping exists in service code for future use, but they do not auto-create alerts in SYNC-63.
+- Duplicate prevention checks existing alerts for the same node with status `ACTIVE` or `HANDLING`.
+- `triggered_value` stores `turbidity_raw` raw ADC. It is not NTU.
+- Raw payload remains traceable in `water_quality_readings.raw_payload` from SYNC-62.
+- Area/wilayah filtering is TODO until area schema is available; WARGA and PENGURUS_RT_RW currently read the same alert list for MVP.
+
+### Relay Auto-Off
+
+Relay auto-off is disabled by default.
+
+```env
+RELAY_AUTO_OFF_ENABLED=false
+```
+
+If enabled and MQTT credentials are valid, UNSAFE alert creation attempts to publish:
+
+```text
+airbersih/relay/NODE-001/control
+```
+
+```json
+{ "command": "OFF" }
+```
+
+If disabled or MQTT is not ready, alert creation and quality ingestion continue without crashing.
+
+### Alert Endpoints
+
+All endpoints use `/api/v1`.
+
+- `GET /api/v1/alerts/active` - JWT role `WARGA` or `PENGURUS_RT_RW`.
+- `GET /api/v1/alerts/history` - JWT role `WARGA` or `PENGURUS_RT_RW`.
+- `PATCH /api/v1/alerts/:id/status` - JWT role `PENGURUS_RT_RW` only.
+
+PATCH body accepts only:
+
+```json
+{ "status": "HANDLING" }
+```
+
+```json
+{ "status": "RESOLVED" }
+```
+
+`ACTIVE` is system-created only and cannot be set from the PATCH endpoint. When status is `RESOLVED`, backend sets `resolved_at = NOW()` and `resolved_by_user_id` from the JWT user.
+
+### Alert Manual Tests
+
+Use REST fallback from SYNC-62 with a valid `X-API-Key`.
+
+CLEAR should not create alert:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/sensor/reading ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: <DEVICE_API_KEY>" ^
+  -d "{\"node_id\":\"NODE-001\",\"turbidity_raw\":2100,\"status_category\":\"CLEAR\",\"timestamp\":null}"
+```
+
+UNSAFE should create one CRITICAL ACTIVE alert:
+
+```cmd
+curl -X POST http://localhost:5000/api/v1/sensor/reading ^
+  -H "Content-Type: application/json" ^
+  -H "X-API-Key: <DEVICE_API_KEY>" ^
+  -d "{\"node_id\":\"NODE-001\",\"turbidity_raw\":3300,\"status_category\":\"UNSAFE\",\"timestamp\":null}"
+```
+
+Send the same UNSAFE payload again. Expected: quality reading is stored, but no duplicate alert is created while an alert for the node is `ACTIVE` or `HANDLING`.
+
+Get active alerts as WARGA or PENGURUS_RT_RW:
+
+```cmd
+curl http://localhost:5000/api/v1/alerts/active ^
+  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
+```
+
+Get alert history:
+
+```cmd
+curl http://localhost:5000/api/v1/alerts/history ^
+  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
+```
+
+PATCH as WARGA should return `403 FORBIDDEN`:
+
+```cmd
+curl -X PATCH http://localhost:5000/api/v1/alerts/<ALERT_ID>/status ^
+  -H "Authorization: Bearer <WARGA_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"status\":\"HANDLING\"}"
+```
+
+PATCH as PENGURUS_RT_RW should succeed:
+
+```cmd
+curl -X PATCH http://localhost:5000/api/v1/alerts/<ALERT_ID>/status ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"status\":\"HANDLING\"}"
+```
+
+Resolve alert as PENGURUS_RT_RW:
+
+```cmd
+curl -X PATCH http://localhost:5000/api/v1/alerts/<ALERT_ID>/status ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"status\":\"RESOLVED\"}"
+```
+
+## SYNC-64 Tank Monitoring Basic
+
+SYNC-64 implements tank MQTT ingestion and tank read API using raw ADC values. It does not calculate real liters, percentage, distance, volume, or days remaining.
+
+### Required Tank Seed
+
+`TANK-001` must exist in `water_tanks` before MQTT ingestion.
+
+```sql
+INSERT INTO water_tanks (tank_code, location_name)
+VALUES ('TANK-001', 'Demo Tank 001')
+ON CONFLICT (tank_code) DO NOTHING;
+```
+
+Do not update `current_percentage` from `water_level_raw`; calibration is not available yet.
+
+### MQTT Tank Topic
+
+Backend subscribes to this topic using the existing MQTT client connection:
+
+```text
+airbersih/tank/TANK-001/status
+```
+
+Valid payload:
+
+```json
+{
+  "tank_id": "TANK-001",
+  "water_level": 523,
+  "pump_status": "ON",
+  "timestamp": null
+}
+```
+
+Rules:
+
+- `water_level` is raw ADC and is stored as `water_level_raw`.
+- `pump_status` must be `ON` or `OFF`.
+- `recorded_at` is null when `timestamp` is null.
+- `received_at` is filled by backend server time.
+- `raw_payload` is stored for debugging.
+- Unknown tank code logs `TANK_NOT_FOUND` and skips ingestion; backend does not auto-create tanks.
+
+Temporary raw status for API response only:
+
+- `LOW` if `water_level_raw <= 300`
+- `FULL` if `water_level_raw >= 800`
+- `NORMAL` otherwise
+
+This is not a percentage, liter, centimeter, distance, or volume calculation.
+
+### Tank Endpoints
+
+- `GET /api/v1/tanks/status` - JWT role `WARGA` or `PENGURUS_RT_RW`.
+- `GET /api/v1/tanks/:tank_code/history` - JWT role `WARGA` or `PENGURUS_RT_RW`.
+
+Response fields use raw-safe labels:
+
+- `water_level_raw`
+- `raw_status`
+- `pump_status`
+- `source`
+- `recorded_at`
+- `received_at`
+
+### Tank Manual Tests
+
+Start server with MQTT disabled to verify read API still works for existing data:
+
+```env
+MQTT_ENABLED=false
+```
+
+Expected: server starts and logs `MQTT disabled by environment`.
+
+MQTT mock valid payload when `MQTT_ENABLED=true` and HiveMQ credential is valid:
+
+```text
+airbersih/tank/TANK-001/status
+```
+
+```json
+{
+  "tank_id": "TANK-001",
+  "water_level": 523,
+  "pump_status": "ON",
+  "timestamp": null
+}
+```
+
+MQTT mock invalid payload examples:
+
+```json
+{
+  "tank_id": "TANK-001",
+  "pump_status": "ON",
+  "timestamp": null
+}
+```
+
+```json
+{
+  "tank_id": "TANK-001",
+  "water_level": 523,
+  "pump_status": "BROKEN",
+  "timestamp": null
+}
+```
+
+Expected: backend logs validation error and skips ingestion without crashing.
+
+Regression test quality MQTT still uses:
+
+```text
+airbersih/sensor/NODE-001/quality
+```
+
+```json
+{
+  "node_id": "NODE-001",
+  "turbidity_raw": 2875,
+  "status_category": "TURBID",
+  "timestamp": null
+}
+```
+
+Check DB persistence:
+
+```sql
+SELECT wt.tank_code, tlr.water_level_raw, tlr.pump_status, tlr.source,
+       tlr.recorded_at, tlr.received_at, tlr.raw_payload
+FROM tank_level_readings tlr
+JOIN water_tanks wt ON wt.id = tlr.tank_id
+WHERE wt.tank_code = 'TANK-001'
+ORDER BY tlr.received_at DESC
+LIMIT 5;
+```
+
+Get latest tank status:
+
+```cmd
+curl http://localhost:5000/api/v1/tanks/status ^
+  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
+```
+
+Get tank history:
+
+```cmd
+curl http://localhost:5000/api/v1/tanks/TANK-001/history ^
+  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
+```
+
+Unknown tank history should return `404 TANK_NOT_FOUND`:
+
+```cmd
+curl http://localhost:5000/api/v1/tanks/UNKNOWN/history ^
+  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
+```

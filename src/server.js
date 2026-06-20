@@ -1,6 +1,7 @@
 const app = require('./app');
 const env = require('./config/env');
 const { testConnection } = require('./config/db');
+const { startMqttService, stopMqttService } = require('./services/mqtt.service');
 
 async function startServer() {
   try {
@@ -12,7 +13,18 @@ async function startServer() {
 
   app.listen(env.port, () => {
     console.log(`Server running on port ${env.port}`);
+    startMqttService();
   });
 }
+
+process.on('SIGINT', () => {
+  stopMqttService();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  stopMqttService();
+  process.exit(0);
+});
 
 startServer();

@@ -1,20 +1,27 @@
 require('dotenv').config();
 
+function getEnvString(key, fallback = undefined) {
+  const value = process.env[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
 const env = {
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv: getEnvString('NODE_ENV', 'development'),
   port: Number(process.env.PORT) || 5000,
-  databaseUrl: process.env.DATABASE_URL,
-  corsOrigin: process.env.CORS_ORIGIN || '*',
-  jwtSecret: process.env.JWT_SECRET,
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
+  databaseUrl: getEnvString('DATABASE_URL'),
+  corsOrigin: getEnvString('CORS_ORIGIN', '*'),
+  jwtSecret: getEnvString('JWT_SECRET'),
+  jwtExpiresIn: getEnvString('JWT_EXPIRES_IN', '1d'),
+  deviceApiKey: getEnvString('DEVICE_API_KEY'),
+  relayAutoOffEnabled: getEnvString('RELAY_AUTO_OFF_ENABLED', 'false') === 'true',
   mqtt: {
-    enabled: process.env.MQTT_ENABLED === 'true',
-    host: process.env.MQTT_HOST,
+    enabled: getEnvString('MQTT_ENABLED', 'false') === 'true',
+    host: getEnvString('MQTT_HOST'),
     port: Number(process.env.MQTT_PORT) || 8883,
-    username: process.env.MQTT_USERNAME,
-    password: process.env.MQTT_PASSWORD,
-    protocol: process.env.MQTT_PROTOCOL || 'mqtts',
-    clientId: process.env.MQTT_CLIENT_ID || 'airbersih-backend-dev',
+    username: getEnvString('MQTT_USERNAME'),
+    password: getEnvString('MQTT_PASSWORD'),
+    protocol: getEnvString('MQTT_PROTOCOL', 'mqtts'),
+    clientId: getEnvString('MQTT_CLIENT_ID', 'airbersih-backend-dev'),
   },
 };
 
