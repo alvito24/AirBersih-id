@@ -9,9 +9,27 @@ const QUALITY_TOPIC = 'airbersih/sensor/NODE-001/quality';
 const TANK_TOPIC = 'airbersih/tank/TANK-001/status';
 const PUMP_STATUS_TOPIC = 'airbersih/pump/PUMP-001/status';
 let client = null;
+let mqttDisabledAfterNetworkError = false;
 
 function hasMqttCredentials() {
   return Boolean(env.mqtt.host && env.mqtt.username && env.mqtt.password);
+}
+
+function disableMqttAfterNetworkError(error) {
+  if (mqttDisabledAfterNetworkError) {
+    return;
+  }
+
+  mqttDisabledAfterNetworkError = true;
+  console.warn(
+    `MQTT disabled after network timeout (${error.code}). ` +
+      'Backend REST API remains running. Check HiveMQ host, broker status, firewall, VPN, or whether port 8883 is blocked.',
+  );
+
+  if (client) {
+    client.end(true);
+    client = null;
+  }
 }
 
 function startMqttService() {
@@ -30,8 +48,8 @@ function startMqttService() {
     clientId: env.mqtt.clientId,
     username: env.mqtt.username,
     password: env.mqtt.password,
-    reconnectPeriod: 5000,
-    connectTimeout: 30000,
+    reconnectPeriod: 0,
+    connectTimeout: 10000,
     clean: true,
   });
 
@@ -58,7 +76,17 @@ function startMqttService() {
   });
 
   client.on('error', (error) => {
-    console.error('MQTT error:', error.message);
+    const details = [
+      error.message,
+      error.code ? `code=${error.code}` : null,
+      error.reasonCode ? `reasonCode=${error.reasonCode}` : null,
+    ].filter(Boolean).join(' ');
+
+    console.error('MQTT error:', details || error);
+
+    if (['ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH'].includes(error.code)) {
+      disableMqttAfterNetworkError(error);
+    }
   });
 
   client.on('message', async (topic, messageBuffer) => {

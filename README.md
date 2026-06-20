@@ -1,33 +1,86 @@
-# Air-Bersih.id 
-## Anggota Kelompok SYNC
-1. Bill Stephen Jacob Sembiring_Technopreneur
-2. Ladyaris Khalishah_UI/UX
-3. Muhammad Fathir Rizky Salam_UIUX
-4. Alvito March Vieri Nanda Sulistyo_Software Development
-5. Farrel Raza Sigak Amrullah_Software Development
-6. Naufal Muammar Zatnika_Technopreneur
-7. Maya Radina Putri_Technopreneur
-8. Erdwina Nabilah Putri_Intelligence System
-
 # AirBersih.id Backend
 
-Backend Sprint 1 untuk AirBersih.id / SYNC. Scope saat ini mencakup fondasi backend SYNC-59 dan auth/RBAC SYNC-60.
+Backend AirBersih.id adalah REST API MVP untuk monitoring air bersih lingkungan berbasis Express.js, PostgreSQL, JWT, dan MQTT HiveMQ Cloud. PostgreSQL menjadi source of truth backend. MQTT dipakai sebagai transport data perangkat IoT, sedangkan Firebase hanya mirror/prototype dari sisi IoT dan bukan sumber data utama backend.
+
+## Status MVP
+
+Dokumentasi ini mencerminkan implementasi final backend SYNC-59 sampai SYNC-68.
+
+- Status: MVP backend aktif.
+- Session utama frontend: REST API.
+- Transport IoT: MQTT HiveMQ Cloud dan REST fallback untuk quality ingestion.
+- Role aktif MVP: `WARGA`, `PENGURUS_RT_RW`.
+- Role legacy/future: `ADMIN_SISTEM`, `MITRA_TUKANG`.
+- Marketplace Tukang Air sudah dihapus dari MVP dan tidak didokumentasikan sebagai fitur aktif.
 
 ## Tech Stack
 
-- Node.js
-- Express.js
+- Node.js + Express.js 5
 - PostgreSQL
-- pg
-- dotenv
-- dotenv-cli
-- CORS
-- bcrypt
-- jsonwebtoken
+- JWT authentication
+- bcrypt password hashing
+- MQTT.js untuk HiveMQ Cloud
+- dotenv + dotenv-cli
+- Nodemon untuk development
 
-## Install Dependencies
+## Struktur Folder Penting
 
-Jika `node_modules` belum tersedia, jalankan install dependency terlebih dahulu.
+```text
+backend/
+  src/
+    app.js                 # Express app dan route mounting
+    server.js              # Server bootstrap dan MQTT startup
+    config/                # env, cors, db
+    controllers/           # HTTP handlers
+    services/              # business logic
+    repositories/          # query PostgreSQL
+    routes/                # route definitions
+    middlewares/           # auth, role guard, error handler
+    utils/                 # response, constants, validation
+    database/
+      migrations/          # SQL schema dan patch migration
+      seeds/               # seed role, user demo, billing demo
+  docs/                    # dokumentasi teknis/API/MQTT/testing
+  .env.example             # placeholder env lokal
+  package.json             # scripts dan dependency
+```
+
+## Role dan Akses
+
+- `WARGA`: role aktif MVP untuk warga; dapat login, membaca kualitas air, alert, status tangki, dan billing pribadi.
+- `PENGURUS_RT_RW`: role aktif MVP untuk pengurus; dapat membaca monitoring, mengubah status alert, soil API, pump control/status/logs, billing summary, dan export placeholder.
+- `ADMIN_SISTEM`: role legacy/future; masih ada di seed dan protected route contoh, tetapi bukan role aktif fitur MVP final.
+- `MITRA_TUKANG`: role legacy/future; masih ada di seed dan protected route contoh, tetapi Marketplace Tukang Air tidak aktif di MVP.
+
+## Fitur Backend Aktif
+
+- Auth & RBAC: register, login, logout stateless, current user, role guard.
+- Water quality monitoring: MQTT ingestion, REST fallback, current/history API.
+- Basic alert: alert `CRITICAL` `ACTIVE` saat quality `UNSAFE`, duplicate prevention, active/history API, update status oleh pengurus.
+- Tank monitoring: MQTT ingestion, status/history API berbasis raw ADC.
+- Soil heatmap & prediction placeholder: heatmap DB/fallback mock, prediction deterministic mock.
+- Remote pump control: REST command ke MQTT publish, status ingestion MQTT, status/logs API.
+- Billing basic: billing pribadi warga, summary pengurus, export PDF placeholder JSON.
+
+## Out of Scope / Tidak Aktif MVP
+
+- Marketplace Tukang Air.
+- Service request tukang.
+- Tracking mitra.
+- Service report.
+- Rating mitra.
+- NFC check-in.
+- PIR presence.
+- GPS tracking.
+- Admin dashboard baru.
+- Payment gateway.
+- Real PDF generation.
+- FCM/Bull/Redis production.
+- ML model production.
+- BMKG production integration.
+- WebSocket realtime.
+
+## Install
 
 ```cmd
 npm install
@@ -35,19 +88,17 @@ npm install
 
 ## Setup Environment
 
-Buat database PostgreSQL terlebih dahulu, misalnya `airbersih_sync_dev`.
-
-Salin `.env.example` menjadi `.env`, lalu sesuaikan nilainya dengan database lokal dan JWT secret lokal.
+Salin `.env.example` menjadi `.env`, lalu sesuaikan nilainya untuk lokal.
 
 ```cmd
 copy .env.example .env
 ```
 
-Contoh isi penting:
+Variable utama:
 
 ```env
-PORT=5000
 NODE_ENV=development
+PORT=5000
 CORS_ORIGIN=http://localhost:3000
 
 DATABASE_URL=postgresql://postgres:your_password@localhost:5432/airbersih_sync_dev
@@ -59,6 +110,7 @@ PGPASSWORD=your_password
 
 JWT_SECRET=change_this_secret
 JWT_EXPIRES_IN=1d
+DEVICE_API_KEY=change_this_device_api_key
 
 MQTT_ENABLED=false
 MQTT_HOST=your-hivemq-host
@@ -67,1123 +119,237 @@ MQTT_USERNAME=your-hivemq-username
 MQTT_PASSWORD=your-hivemq-password
 MQTT_PROTOCOL=mqtts
 MQTT_CLIENT_ID=airbersih-backend-dev
+RELAY_AUTO_OFF_ENABLED=false
 ```
 
-Script `psql` memakai variable standar PostgreSQL (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) dari `.env`. `DATABASE_URL` tetap tersedia untuk kebutuhan aplikasi Node.js.
+Catatan:
 
-MQTT masih nonaktif secara default untuk development. Isi credential HiveMQ di `.env` dan ubah `MQTT_ENABLED=true` hanya saat task MQTT ingestion/control mulai diimplementasikan.
+- `DATABASE_URL` dipakai aplikasi Node.js.
+- `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` dipakai script `psql` via `dotenv-cli`.
+- `DEVICE_API_KEY` wajib untuk endpoint REST fallback device `POST /api/v1/sensor/reading`.
+- `MQTT_ENABLED=false` membuat REST API tetap berjalan tanpa koneksi MQTT.
+- `RELAY_AUTO_OFF_ENABLED` masih optional; jika aktif, alert UNSAFE mencoba publish relay OFF.
 
-Jangan commit file `.env` dan jangan gunakan secret contoh untuk production.
+## Keamanan .env
 
-## Run Server
+- Jangan commit `.env`.
+- `.env.example` hanya placeholder dan tidak boleh berisi secret asli.
+- Credential HiveMQ Cloud wajib dibagikan lewat private channel.
+- Gunakan `JWT_SECRET` kuat untuk production.
+
+## Menjalankan Lokal
+
+Development dengan nodemon:
 
 ```cmd
 npm run dev
 ```
 
-Atau:
+Production-like local start:
 
 ```cmd
 npm start
 ```
 
-Server default berjalan di `http://localhost:5000`.
-
-## Database Migration
-
-Pastikan PostgreSQL sudah berjalan, database sudah dibuat, dan `.env` sudah berisi nilai `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, dan `PGPASSWORD` yang benar.
-
-```cmd
-npm run db:migrate
-```
-
-Jika command berhenti di `Password for user LENOVO:`, berarti `psql` tidak menerima user PostgreSQL dari environment. Periksa kembali isi `.env`.
-
-## Seed Roles
-
-Jalankan seed roles setelah migration berhasil.
-
-```cmd
-npm run db:seed
-```
-
-Seed roles:
-
-- `WARGA`
-- `PENGURUS_RT_RW`
-- `ADMIN_SISTEM`
-- `MITRA_TUKANG`
-## Seed Demo Users Development
-
-Seed demo users bersifat opsional dan hanya untuk development/testing RBAC 4 role. Password testing untuk semua demo user adalah `password123`.
-
-```cmd
-npm run db:seed:demo
-```
-
-Catatan: `npm run db:seed:demo` hanya bisa dijalankan jika file `src/database/seeds/002_seed_demo_users.sql` tersedia.
-
-Demo users:
-
-- `warga@airbersih.test` - role `WARGA`
-- `pengurus@airbersih.test` - role `PENGURUS_RT_RW`
-- `admin@airbersih.test` - role `ADMIN_SISTEM`
-- `mitra@airbersih.test` - role `MITRA_TUKANG`
-
-## Health Check
+Health check:
 
 ```cmd
 curl http://localhost:5000/api/health
 ```
 
-Expected response:
+## Migration
 
-```json
-{
-  "success": true,
-  "message": "Backend is running",
-  "data": {
-    "service": "AirBersih Backend",
-    "status": "OK"
-  }
-}
-```
-
-## Auth Endpoints
-
-### Register
-
-`POST /api/auth/register`
-
-Register publik selalu membuat user dengan role default `WARGA`. Field role dari request tidak digunakan, sehingga client tidak bisa membuat Admin/Pengurus/Mitra lewat public register.
-
-```json
-{
-  "name": "Budi",
-  "email": "budi@example.com",
-  "password": "password123",
-  "phone": "08123456789",
-  "address": "RT 01 RW 02"
-}
-```
-
-Expected success: `201 Created`.
-
-### Login
-
-`POST /api/auth/login`
-
-```json
-{
-  "email": "budi@example.com",
-  "password": "password123"
-}
-```
-
-Expected success: `200 OK`, response berisi `token` dan safe user object tanpa `password_hash`.
-### Logout
-
-`POST /api/auth/logout`
-
-Header:
-
-```txt
-Authorization: Bearer <token>
-```
-
-Logout bersifat stateless untuk Sprint 1. Frontend bertanggung jawab menghapus token.
-
-### Current User
-
-`GET /api/auth/me`
-
-Header:
-
-```txt
-Authorization: Bearer <token>
-```
-
-Expected success: `200 OK`, response berisi safe user object tanpa `password_hash`.
-
-## Protected Route Examples
-
-Semua endpoint berikut membutuhkan header `Authorization: Bearer <token>`.
-
-- `GET /api/warga-only` - role `WARGA`
-- `GET /api/rt-rw-only` - role `PENGURUS_RT_RW` atau `ADMIN_SISTEM`
-- `GET /api/admin-only` - role `ADMIN_SISTEM`
-- `GET /api/mitra-only` - role `MITRA_TUKANG`
-
-Catatan: `ADMIN_SISTEM` boleh mengakses `/api/rt-rw-only` sebagai override role untuk kebutuhan testing/operator Sprint 1.
-
-## Manual Testing Notes
-
-Urutan test minimal via Postman atau Thunder Client:
-
-1. `GET /api/health` harus mengembalikan `200 OK`.
-2. `POST /api/auth/register` dengan data valid harus mengembalikan `201 Created` dan role `WARGA`.
-3. Register email yang sama harus mengembalikan `409 EMAIL_ALREADY_EXISTS`.
-4. `POST /api/auth/login` dengan credential valid harus mengembalikan JWT.
-5. Login password salah harus mengembalikan `401 INVALID_CREDENTIALS`.
-6. `GET /api/auth/me` tanpa token harus mengembalikan `401 TOKEN_MISSING`.
-7. `GET /api/auth/me` dengan token valid harus mengembalikan data user tanpa `password_hash`.
-8. Akses protected route dengan role benar harus mengembalikan `200 OK`.
-9. Akses protected route dengan role salah harus mengembalikan `403 FORBIDDEN`.
-
-## Available Scripts
-
-- `npm run dev` - menjalankan server development dengan nodemon.
-- `npm start` - menjalankan server dengan Node.js.
-- `npm run db:migrate` - menjalankan migration SQL Sprint 1 menggunakan environment PostgreSQL dari `.env`.
-- `npm run db:seed` - menjalankan seed default roles menggunakan environment PostgreSQL dari `.env`.
-- `npm run db:seed:demo` - menjalankan seed demo users development/testing jika file seed demo tersedia.
-- `npm test` - placeholder untuk manual testing Sprint 1.
-
-## Database Troubleshooting
-
-Jika muncul `Password for user LENOVO:`, penyebabnya adalah `psql` tidak menerima user `postgres` dari environment dan fallback ke user OS Windows.
-
-Checklist:
-
-- Pastikan `PGUSER=postgres` sudah ada di `.env`.
-- Pastikan `.env` berada di root folder backend.
-- Pastikan database sudah dibuat, misalnya `airbersih_sync_dev`.
-- Pastikan PostgreSQL service sedang berjalan.
-- Pastikan password PostgreSQL benar di `PGPASSWORD`.
-- Pastikan `PGHOST`, `PGPORT`, dan `PGDATABASE` sesuai dengan PostgreSQL lokal.
-
-## Current Limitations
-
-- Refresh token belum diimplementasikan.
-- Token blacklist belum diimplementasikan; logout stateless untuk Sprint 1.
-- Endpoint fitur IoT, billing, marketplace, MQTT, FCM, WebSocket, dan dashboard belum diimplementasikan.
-- Pastikan PostgreSQL CLI `psql` tersedia di PATH sebelum menjalankan migration atau seed.
-
-## SYNC-62 Water Quality MQTT Ingestion
-
-SYNC-62 implements Water Quality MQTT Ingestion + Quality Read API only. It does not implement alert automation, tank, pump, billing, soil, marketplace, WebSocket, or auth/RBAC changes.
-
-### Required Migration Patch
-
-Run the Sprint 1 migration first, then run the IoT raw field patch before testing quality ingestion.
+Script `db:migrate` saat ini hanya menjalankan migration awal `001_create_sprint1_schema.sql`:
 
 ```cmd
 npm run db:migrate
 ```
+Jalankan patch migration lanjutan secara manual dengan urutan berikut jika belum dimasukkan ke script migrate:
 
 ```cmd
 dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/002_add_iot_raw_fields.sql
-```
-
-The patch adds `water_quality_readings.turbidity_raw`, `source`, and `raw_payload`, and makes `turbidity_ntu`/`recorded_at` nullable for raw MQTT data. Do not edit `001_create_sprint1_schema.sql`.
-
-### Required Sensor Node
-
-Quality ingestion maps `payload.node_id` to `sensor_nodes.node_code`. Insert `NODE-001` before MQTT or REST fallback testing if it does not exist yet.
-
-```sql
-INSERT INTO sensor_nodes (node_code, node_type, location_name)
-VALUES ('NODE-001', 'WATER_QUALITY', 'Demo Node 001')
-ON CONFLICT (node_code) DO NOTHING;
-```
-
-### Device API Key
-
-REST fallback write endpoint requires `X-API-Key` matching `.env`.
-
-```env
-DEVICE_API_KEY=change_this_device_api_key
-```
-
-### MQTT Config
-
-MQTT is disabled by default. Set these values in `.env` to connect to HiveMQ Cloud.
-
-```env
-MQTT_ENABLED=true
-MQTT_HOST=your-hivemq-host
-MQTT_PORT=8883
-MQTT_USERNAME=your-hivemq-username
-MQTT_PASSWORD=your-hivemq-password
-MQTT_PROTOCOL=mqtts
-MQTT_CLIENT_ID=airbersih-backend-dev
-```
-
-When `MQTT_ENABLED=false`, the server still starts and logs that MQTT is disabled.
-
-### Quality Endpoints
-
-- `POST /api/v1/sensor/reading` - REST fallback ingestion, requires `X-API-Key`.
-- `GET /api/v1/quality/current?node_id=NODE-001` - latest reading, requires JWT role `WARGA` or `PENGURUS_RT_RW`.
-- `GET /api/v1/quality/history?node_id=NODE-001&from=YYYY-MM-DD&to=YYYY-MM-DD` - history filtered by `received_at`, requires JWT role `WARGA` or `PENGURUS_RT_RW`.
-
-### REST Fallback Test
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/sensor/reading ^
-  -H "Content-Type: application/json" ^
-  -H "X-API-Key: change_this_device_api_key" ^
-  -d "{\"node_id\":\"NODE-001\",\"turbidity_raw\":2875,\"status_category\":\"TURBID\",\"timestamp\":null}"
-```
-
-Invalid payload example:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/sensor/reading ^
-  -H "Content-Type: application/json" ^
-  -H "X-API-Key: change_this_device_api_key" ^
-  -d "{\"node_id\":\"NODE-001\",\"status_category\":\"BAD\",\"timestamp\":null}"
-```
-
-### MQTT Mock Test
-
-Publish to topic:
-
-```text
-airbersih/sensor/NODE-001/quality
-```
-
-Payload:
-
-```json
-{
-  "node_id": "NODE-001",
-  "turbidity_raw": 2875,
-  "status_category": "TURBID",
-  "timestamp": null
-}
-```
-
-Expected result: backend stores `turbidity_raw` as raw ADC, leaves `turbidity_ntu` null, stores `raw_payload`, fills `received_at` with server time, and updates `sensor_nodes.last_ping_at`.
-
-Invalid JSON or invalid payload should be logged and ignored without crashing the server.
-
-### Quality Read Tests
-
-Use a JWT from a `WARGA` or `PENGURUS_RT_RW` user.
-
-```cmd
-curl "http://localhost:5000/api/v1/quality/current?node_id=NODE-001" ^
-  -H "Authorization: Bearer <token>"
-```
-
-```cmd
-curl "http://localhost:5000/api/v1/quality/history?node_id=NODE-001&from=2026-01-01&to=2026-01-31" ^
-  -H "Authorization: Bearer <token>"
-```
-
-Expected edge cases:
-
-- Unknown node returns `404 NODE_NOT_FOUND`.
-- Empty history returns `200 OK` with `items: []` and `total: 0`.
-- Legacy roles `ADMIN_SISTEM` and `MITRA_TUKANG` are not allowed on new quality read endpoints.
-
-## SYNC-63 Alert Basic
-
-SYNC-63 implements Alert Basic from quality readings. It does not implement production FCM, Bull Queue, Redis, frontend notification UI, marketplace, admin dashboard, tank, pump control, billing, or soil features.
-
-### Alert Rules
-
-- Automatic alert creation is enabled only for `status_category = UNSAFE` in MVP basic.
-- `UNSAFE` creates a `WATER_QUALITY` alert with `alert_level = CRITICAL` and `status = ACTIVE`.
-- `MILD_TURBID -> WARNING` and `TURBID -> DANGER` mapping exists in service code for future use, but they do not auto-create alerts in SYNC-63.
-- Duplicate prevention checks existing alerts for the same node with status `ACTIVE` or `HANDLING`.
-- `triggered_value` stores `turbidity_raw` raw ADC. It is not NTU.
-- Raw payload remains traceable in `water_quality_readings.raw_payload` from SYNC-62.
-- Area/wilayah filtering is TODO until area schema is available; WARGA and PENGURUS_RT_RW currently read the same alert list for MVP.
-
-### Relay Auto-Off
-
-Relay auto-off is disabled by default.
-
-```env
-RELAY_AUTO_OFF_ENABLED=false
-```
-
-If enabled and MQTT credentials are valid, UNSAFE alert creation attempts to publish:
-
-```text
-airbersih/relay/NODE-001/control
-```
-
-```json
-{ "command": "OFF" }
-```
-
-If disabled or MQTT is not ready, alert creation and quality ingestion continue without crashing.
-
-### Alert Endpoints
-
-All endpoints use `/api/v1`.
-
-- `GET /api/v1/alerts/active` - JWT role `WARGA` or `PENGURUS_RT_RW`.
-- `GET /api/v1/alerts/history` - JWT role `WARGA` or `PENGURUS_RT_RW`.
-- `PATCH /api/v1/alerts/:id/status` - JWT role `PENGURUS_RT_RW` only.
-
-PATCH body accepts only:
-
-```json
-{ "status": "HANDLING" }
-```
-
-```json
-{ "status": "RESOLVED" }
-```
-
-`ACTIVE` is system-created only and cannot be set from the PATCH endpoint. When status is `RESOLVED`, backend sets `resolved_at = NOW()` and `resolved_by_user_id` from the JWT user.
-
-### Alert Manual Tests
-
-Use REST fallback from SYNC-62 with a valid `X-API-Key`.
-
-CLEAR should not create alert:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/sensor/reading ^
-  -H "Content-Type: application/json" ^
-  -H "X-API-Key: <DEVICE_API_KEY>" ^
-  -d "{\"node_id\":\"NODE-001\",\"turbidity_raw\":2100,\"status_category\":\"CLEAR\",\"timestamp\":null}"
-```
-
-UNSAFE should create one CRITICAL ACTIVE alert:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/sensor/reading ^
-  -H "Content-Type: application/json" ^
-  -H "X-API-Key: <DEVICE_API_KEY>" ^
-  -d "{\"node_id\":\"NODE-001\",\"turbidity_raw\":3300,\"status_category\":\"UNSAFE\",\"timestamp\":null}"
-```
-
-Send the same UNSAFE payload again. Expected: quality reading is stored, but no duplicate alert is created while an alert for the node is `ACTIVE` or `HANDLING`.
-
-Get active alerts as WARGA or PENGURUS_RT_RW:
-
-```cmd
-curl http://localhost:5000/api/v1/alerts/active ^
-  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
-```
-
-Get alert history:
-
-```cmd
-curl http://localhost:5000/api/v1/alerts/history ^
-  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
-```
-
-PATCH as WARGA should return `403 FORBIDDEN`:
-
-```cmd
-curl -X PATCH http://localhost:5000/api/v1/alerts/<ALERT_ID>/status ^
-  -H "Authorization: Bearer <WARGA_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"status\":\"HANDLING\"}"
-```
-
-PATCH as PENGURUS_RT_RW should succeed:
-
-```cmd
-curl -X PATCH http://localhost:5000/api/v1/alerts/<ALERT_ID>/status ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"status\":\"HANDLING\"}"
-```
-
-Resolve alert as PENGURUS_RT_RW:
-
-```cmd
-curl -X PATCH http://localhost:5000/api/v1/alerts/<ALERT_ID>/status ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"status\":\"RESOLVED\"}"
-```
-
-## SYNC-64 Tank Monitoring Basic
-
-SYNC-64 implements tank MQTT ingestion and tank read API using raw ADC values. It does not calculate real liters, percentage, distance, volume, or days remaining.
-
-### Required Tank Seed
-
-`TANK-001` must exist in `water_tanks` before MQTT ingestion.
-
-```sql
-INSERT INTO water_tanks (tank_code, location_name)
-VALUES ('TANK-001', 'Demo Tank 001')
-ON CONFLICT (tank_code) DO NOTHING;
-```
-
-Do not update `current_percentage` from `water_level_raw`; calibration is not available yet.
-
-### MQTT Tank Topic
-
-Backend subscribes to this topic using the existing MQTT client connection:
-
-```text
-airbersih/tank/TANK-001/status
-```
-
-Valid payload:
-
-```json
-{
-  "tank_id": "TANK-001",
-  "water_level": 523,
-  "pump_status": "ON",
-  "timestamp": null
-}
-```
-
-Rules:
-
-- `water_level` is raw ADC and is stored as `water_level_raw`.
-- `pump_status` must be `ON` or `OFF`.
-- `recorded_at` is null when `timestamp` is null.
-- `received_at` is filled by backend server time.
-- `raw_payload` is stored for debugging.
-- Unknown tank code logs `TANK_NOT_FOUND` and skips ingestion; backend does not auto-create tanks.
-
-Temporary raw status for API response only:
-
-- `LOW` if `water_level_raw <= 300`
-- `FULL` if `water_level_raw >= 800`
-- `NORMAL` otherwise
-
-This is not a percentage, liter, centimeter, distance, or volume calculation.
-
-### Tank Endpoints
-
-- `GET /api/v1/tanks/status` - JWT role `WARGA` or `PENGURUS_RT_RW`.
-- `GET /api/v1/tanks/:tank_code/history` - JWT role `WARGA` or `PENGURUS_RT_RW`.
-
-Response fields use raw-safe labels:
-
-- `water_level_raw`
-- `raw_status`
-- `pump_status`
-- `source`
-- `recorded_at`
-- `received_at`
-
-### Tank Manual Tests
-
-Start server with MQTT disabled to verify read API still works for existing data:
-
-```env
-MQTT_ENABLED=false
-```
-
-Expected: server starts and logs `MQTT disabled by environment`.
-
-MQTT mock valid payload when `MQTT_ENABLED=true` and HiveMQ credential is valid:
-
-```text
-airbersih/tank/TANK-001/status
-```
-
-```json
-{
-  "tank_id": "TANK-001",
-  "water_level": 523,
-  "pump_status": "ON",
-  "timestamp": null
-}
-```
-
-MQTT mock invalid payload examples:
-
-```json
-{
-  "tank_id": "TANK-001",
-  "pump_status": "ON",
-  "timestamp": null
-}
-```
-
-```json
-{
-  "tank_id": "TANK-001",
-  "water_level": 523,
-  "pump_status": "BROKEN",
-  "timestamp": null
-}
-```
-
-Expected: backend logs validation error and skips ingestion without crashing.
-
-Regression test quality MQTT still uses:
-
-```text
-airbersih/sensor/NODE-001/quality
-```
-
-```json
-{
-  "node_id": "NODE-001",
-  "turbidity_raw": 2875,
-  "status_category": "TURBID",
-  "timestamp": null
-}
-```
-
-Check DB persistence:
-
-```sql
-SELECT wt.tank_code, tlr.water_level_raw, tlr.pump_status, tlr.source,
-       tlr.recorded_at, tlr.received_at, tlr.raw_payload
-FROM tank_level_readings tlr
-JOIN water_tanks wt ON wt.id = tlr.tank_id
-WHERE wt.tank_code = 'TANK-001'
-ORDER BY tlr.received_at DESC
-LIMIT 5;
-```
-
-Get latest tank status:
-
-```cmd
-curl http://localhost:5000/api/v1/tanks/status ^
-  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
-```
-
-Get tank history:
-
-```cmd
-curl http://localhost:5000/api/v1/tanks/TANK-001/history ^
-  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
-```
-
-Unknown tank history should return `404 TANK_NOT_FOUND`:
-
-```cmd
-curl http://localhost:5000/api/v1/tanks/UNKNOWN/history ^
-  -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
-```
-
-## SYNC-66 Soil Heatmap and Prediction API
-
-SYNC-66 provides protected soil heatmap and prediction responses for `PENGURUS_RT_RW` only. The Intelligence System model is not available yet, so prediction uses deterministic mock data with `source = MOCK` and `model_status = PENDING`. This is not an accuracy claim and does not load `.pkl` or `.joblib` model files.
-
-### Required Migration
-
-Run the soil schema migration after earlier migrations:
-
-```cmd
 dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/003_create_soil_schema.sql
-```
-
-The migration only creates:
-
-- `soil_sensor_nodes`
-- `soil_moisture_readings`
-
-It does not edit or remove older tables.
-
-### Optional Soil Seed
-
-Seed a soil node and reading if you want heatmap data from DB instead of mock response:
-
-```sql
-INSERT INTO soil_sensor_nodes (node_code, location_name, latitude, longitude, depth_cm)
-VALUES ('SOIL-NODE-001', 'Demo Soil Node 001', -6.2146200, 106.8451300, 10)
-ON CONFLICT (node_code) DO NOTHING;
-
-INSERT INTO soil_moisture_readings (node_id, moisture_percentage, raw_payload, recorded_at)
-SELECT id, 42.5, '{"source":"manual_seed"}'::jsonb, NOW()
-FROM soil_sensor_nodes
-WHERE node_code = 'SOIL-NODE-001';
-```
-
-`moisture_percentage` is constrained to 0-100. Soil status is:
-
-- `LOW` if moisture is below 35
-- `HIGH` if moisture is above 70
-- `NORMAL` otherwise
-
-`absorption_index = 100 - moisture_percentage` is a deterministic placeholder calculation, not an ML result.
-
-### Soil Endpoints
-
-Both endpoints require JWT role `PENGURUS_RT_RW`.
-
-- `GET /api/v1/soil/heatmap`
-- `GET /api/v1/soil/prediction`
-
-WARGA, ADMIN_SISTEM, and MITRA_TUKANG should receive `403 FORBIDDEN`.
-
-### Heatmap Test
-
-```cmd
-curl http://localhost:5000/api/v1/soil/heatmap ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>"
-```
-
-Expected response shape:
-
-```json
-{
-  "success": true,
-  "message": "Soil heatmap retrieved",
-  "data": {
-    "items": [
-      {
-        "node_id": "SOIL-NODE-001",
-        "latitude": -6.21462,
-        "longitude": 106.84513,
-        "moisture_percentage": 42.5,
-        "absorption_index": 57.5,
-        "status": "NORMAL",
-        "recorded_at": "...",
-        "received_at": "..."
-      }
-    ],
-    "total": 1,
-    "source": "DB",
-    "model_status": "PENDING"
-  }
-}
-```
-
-If the DB has no soil readings, response uses deterministic mock points and returns `source = MOCK`.
-
-### Prediction Test
-
-```cmd
-curl http://localhost:5000/api/v1/soil/prediction ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>"
-```
-
-Expected response shape:
-
-```json
-{
-  "success": true,
-  "message": "Soil prediction retrieved",
-  "data": {
-    "days": [
-      {
-        "date": "YYYY-MM-DD",
-        "predicted_moisture_percentage": 44
-      }
-    ],
-    "source": "MOCK",
-    "model_status": "PENDING",
-    "note": "Prediction is deterministic placeholder until IS model is available."
-  }
-}
-```
-
-### WARGA Forbidden Test
-
-```cmd
-curl http://localhost:5000/api/v1/soil/heatmap ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
-
-Expected: `403 FORBIDDEN`.
-
-### BMKG Placeholder
-
-BMKG adapter is a placeholder in SYNC-66. It does not make external calls, does not require an API key, and does not add dependencies. Production BMKG integration should wait until the API contract and credential handling are clear.
-
-## SYNC-67 Pump Control MQTT
-
-SYNC-67 implements basic remote pump control for `PENGURUS_RT_RW` only. It uses REST to publish MQTT commands and subscribes to pump status MQTT messages. WebSocket broadcast and pump schedules are TODO/out of scope.
-
-### Required Migration
-
-Run the pump audit patch after migration 002:
-
-```cmd
 dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/004_patch_pump_operation_logs_audit_fields.sql
-```
-
-This adds nullable audit fields to `pump_operation_logs`:
-
-- `operator_user_id`
-- `command_source`
-- `publish_status`
-
-### Required Pump Seed
-
-Make sure `TANK-001` and `NODE-001` exist first, then seed `PUMP-001` with explicit relations:
-
-```sql
-INSERT INTO pumps (
-  pump_code,
-  tank_id,
-  node_id,
-  current_status,
-  last_command_at,
-  last_confirmed_at,
-  created_at
-)
-SELECT
-  'PUMP-001',
-  wt.id,
-  sn.id,
-  'OFF',
-  NULL,
-  NULL,
-  NOW()
-FROM water_tanks wt
-JOIN sensor_nodes sn ON sn.node_code = 'NODE-001'
-WHERE wt.tank_code = 'TANK-001'
-  AND NOT EXISTS (SELECT 1 FROM pumps WHERE pump_code = 'PUMP-001');
-```
-
-Notes:
-
-- `TANK-001` and `NODE-001` must exist before seeding `PUMP-001`.
-- Initial `current_status = 'OFF'` is a local placeholder for manual testing.
-- If your local schema rejects `OFF`, check the allowed status values in your database.
-- If the pump is already seeded, do not duplicate it.
-
-### Pump Topics
-
-Control publish topic:
-
-```text
-airbersih/pump/PUMP-001/control
-```
-
-Payload must use `command`:
-
-```json
-{ "command": "ON" }
-```
-
-```json
-{ "command": "OFF" }
-```
-
-Do not use `action`.
-
-Status subscribe topic:
-
-```text
-airbersih/pump/PUMP-001/status
-```
-
-Status payload:
-
-```json
-{
-  "pump_id": "PUMP-001",
-  "status": "ON",
-  "source": "AUTO"
-}
-```
-
-### Pump Endpoints
-
-All pump endpoints are restricted to JWT role `PENGURUS_RT_RW` only.
-
-- `POST /api/v1/pumps/:pump_code/control`
-- `GET /api/v1/pumps/:pump_code/status`
-- `GET /api/v1/pumps/:pump_code/logs`
-
-WARGA, ADMIN_SISTEM, and MITRA_TUKANG must receive `403 FORBIDDEN`.
-
-### Pump Manual Tests
-
-Control while MQTT is disabled should return `503 MQTT_NOT_READY` and server must not crash:
-
-```env
-MQTT_ENABLED=false
-```
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"command\":\"ON\"}"
-```
-
-Invalid command should return `400 VALIDATION_ERROR`:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"command\":\"START\"}"
-```
-
-WARGA control/status/logs should return `403 FORBIDDEN`:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
-  -H "Authorization: Bearer <WARGA_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"command\":\"ON\"}"
-```
-
-With `MQTT_ENABLED=true` and valid HiveMQ credentials, Pengurus control ON should publish `{ "command": "ON" }`:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"command\":\"ON\"}"
-```
-
-Control OFF:
-
-```cmd
-curl -X POST http://localhost:5000/api/v1/pumps/PUMP-001/control ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"command\":\"OFF\"}"
-```
-
-MQTT mock pump status:
-
-```text
-airbersih/pump/PUMP-001/status
-```
-
-```json
-{
-  "pump_id": "PUMP-001",
-  "status": "ON",
-  "source": "AUTO"
-}
-```
-
-Expected: status log is stored in `pump_operation_logs`, `pumps.current_status` becomes `ON`, and `pumps.last_confirmed_at` is updated.
-
-Get status:
-
-```cmd
-curl http://localhost:5000/api/v1/pumps/PUMP-001/status ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>"
-```
-
-Get logs:
-
-```cmd
-curl http://localhost:5000/api/v1/pumps/PUMP-001/logs ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>"
-```
-
-DB check:
-
-```sql
-SELECT p.pump_code, pol.command, pol.status, pol.source, pol.command_source,
-       pol.publish_status, pol.operator_user_id, pol.raw_payload,
-       pol.received_at, pol.created_at
-FROM pump_operation_logs pol
-JOIN pumps p ON p.id = pol.pump_id
-WHERE p.pump_code = 'PUMP-001'
-ORDER BY pol.received_at DESC
-LIMIT 10;
-```
-
-Regression tests after MQTT service update:
-
-- Quality topic still works: `airbersih/sensor/NODE-001/quality`
-- Tank topic still works: `airbersih/tank/TANK-001/status`
-
-Both should continue to parse, validate, and persist messages as documented in SYNC-62 and SYNC-64.
-
-## SYNC-68 Billing Basic
-
-SYNC-68 implements basic consumption billing for MVP. It does not implement payment gateway, invoice email, tiered pricing, relay cut-off based on unpaid bills, marketplace, Admin endpoints, or Mitra endpoints.
-
-### Required Billing Migration
-
-Run the base migration and previous patches first. If `005_create_billing_schema.sql` is part of your local branch, run it after migration 004:
-
-```cmd
-npm run db:migrate
-```
-
-```cmd
-dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/002_add_iot_raw_fields.sql
-```
-
-```cmd
-dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/003_create_soil_schema.sql
-```
-
-```cmd
-dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/004_patch_pump_operation_logs_audit_fields.sql
-```
-
-```cmd
 dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/005_create_billing_schema.sql
 ```
 
-The billing schema includes:
+Ringkasan migration:
 
-- `water_connections`
-- `monthly_consumption_summaries`
-- `tariff_config`
-- `billing_records` patch fields: `connection_id`, `summary_id`, `rate_per_m3`, `total_m3`
+- `001_create_sprint1_schema.sql`: role, users, sensor nodes, quality readings, alerts, tanks, pumps, billing awal, dan tabel legacy/future.
+- `002_add_iot_raw_fields.sql`: patch raw IoT untuk quality/tank/pump logs; `turbidity_raw` dan `water_level_raw` adalah ADC mentah.
+- `003_create_soil_schema.sql`: tabel soil sensor node dan soil moisture readings.
+- `004_patch_pump_operation_logs_audit_fields.sql`: audit field untuk log command pump.
+- `005_create_billing_schema.sql`: water connections, monthly consumption summaries, tariff config, dan patch billing records.
 
-Do not edit old migrations. If the billing schema needs another change after `005` has already been run, create a new patch migration such as `006_patch_billing_schema.sql` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+Jangan mengubah migration lama yang sudah pernah berjalan. Jika perlu patch baru, buat migration baru.
 
-### Billing Demo Seed
+## Seed
 
-Run role and demo-user seeds before billing seed:
+Seed roles:
 
 ```cmd
 npm run db:seed
 ```
 
+Seed demo users:
+
 ```cmd
 npm run db:seed:demo
 ```
 
-Then run:
+Akun demo dari seed:
+
+- `warga@airbersih.test` / `password123` - `WARGA`
+- `pengurus@airbersih.test` / `password123` - `PENGURUS_RT_RW`
+- `admin@airbersih.test` / `password123` - `ADMIN_SISTEM` legacy/future
+- `mitra@airbersih.test` / `password123` - `MITRA_TUKANG` legacy/future
+
+Seed billing demo:
 
 ```cmd
 npm run db:seed:billing
 ```
 
-Billing seed uses demo account:
-
-- `warga@airbersih.test` / `password123` - role `WARGA`
-- `pengurus@airbersih.test` / `password123` - role `PENGURUS_RT_RW`
-
-The billing seed is idempotent and is safe to run multiple times. It fails clearly if `warga@airbersih.test` does not exist, so run `npm run db:seed:demo` first.
-
-Seeded billing demo period:
-
-- `month=6`
-- `year=2026`
-- `total_usage_liters=12500`
-- active demo tariff `rate_per_m3=5000`
-- expected `total_m3=12.5`
-- expected `total_amount=62500`
-
-### Billing Calculation Rules
-
-Billing service reads `monthly_consumption_summaries.total_usage_liters` and aliases it as `total_liters` in API responses.
-
-Formula:
-
-```text
-total_m3 = total_usage_liters / 1000
-total_amount = total_m3 * rate_per_m3
-```
-
-`rate_per_m3` is read from the latest active `tariff_config` row by `created_at DESC, id DESC`. If no active tariff exists, the API returns a clear `TARIFF_NOT_CONFIGURED` error. Tariff is not hardcoded in service code.
-
-### Billing Endpoints
-
-All endpoints use `/api/v1` and existing `apiResponse.js` response format.
-
-- `GET /api/v1/billing/my?month=X&year=Y` - JWT role `WARGA` only.
-- `GET /api/v1/billing/summary?month=X&year=Y` - JWT role `PENGURUS_RT_RW` only.
-- `GET /api/v1/billing/:id/export-pdf` - JWT role `PENGURUS_RT_RW` only.
-
-`WARGA` billing always uses `req.user.id`. The API does not accept `user_id` from query, body, or params.
-
-For MVP, Pengurus summary returns aggregate for all active connections. TODO: add area/RT/RW filtering when area schema is available.
-
-### WARGA Billing My Test
-
-Login as `warga@airbersih.test`, then call:
-
-```cmd
-curl "http://localhost:5000/api/v1/billing/my?month=6&year=2026" ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
-
-Expected: `200 OK`, personal billing items only for the logged-in WARGA.
-
-Empty-period test:
-
-```cmd
-curl "http://localhost:5000/api/v1/billing/my?month=7&year=2026" ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
-
-Expected: if the WARGA has a connection but no monthly summary, item returns `total_liters=0`, `total_m3=0`, `total_amount=0`, and `has_summary=false`. If the WARGA has no connection, response returns `items: []` and totals `0`.
-
-### PENGURUS Billing Summary Test
-
-Login as `pengurus@airbersih.test`, then call:
-
-```cmd
-curl "http://localhost:5000/api/v1/billing/summary?month=6&year=2026" ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>"
-```
-
-Expected: `200 OK`, aggregate all active connections for MVP.
-
-### Export Placeholder Test
-
-Find a seeded billing record id:
+Seed manual yang diperlukan untuk IoT demo jika belum ada:
 
 ```sql
-SELECT id, connection_id, period_month, period_year, total_amount, status
-FROM billing_records
-ORDER BY id DESC
-LIMIT 5;
+INSERT INTO sensor_nodes (node_code, node_type, location_name)
+VALUES ('NODE-001', 'WATER_QUALITY', 'Demo Node 001')
+ON CONFLICT (node_code) DO NOTHING;
+
+INSERT INTO water_tanks (tank_code, location_name)
+VALUES ('TANK-001', 'Demo Tank 001')
+ON CONFLICT (tank_code) DO NOTHING;
+
+INSERT INTO pumps (pump_code, tank_id, node_id, current_status, created_at)
+SELECT 'PUMP-001', wt.id, sn.id, 'OFF', NOW()
+FROM water_tanks wt
+JOIN sensor_nodes sn ON sn.node_code = 'NODE-001'
+WHERE wt.tank_code = 'TANK-001'
+  AND NOT EXISTS (SELECT 1 FROM pumps WHERE pump_code = 'PUMP-001');
+
+INSERT INTO soil_sensor_nodes (node_code, location_name, latitude, longitude, depth_cm)
+VALUES ('SOIL-NODE-001', 'Demo Soil Node 001', -6.21462, 106.84513, 20)
+ON CONFLICT (node_code) DO NOTHING;
 ```
 
-Then call as Pengurus:
+`SOIL-NODE-001` optional karena heatmap memiliki fallback mock saat database kosong.
 
-```cmd
-curl http://localhost:5000/api/v1/billing/<BILLING_ID>/export-pdf ^
-  -H "Authorization: Bearer <PENGURUS_TOKEN>"
-```
+## Endpoint Utama
 
-Expected response is JSON placeholder, not a fake PDF file:
+Base local: `http://localhost:5000`
 
-```json
-{
-  "success": true,
-  "message": "PDF export placeholder retrieved",
-  "data": {
-    "export_status": "PLACEHOLDER",
-    "content_type": "application/json",
-    "todo": "Generate real PDF after PDF dependency is approved"
-  }
-}
-```
+Legacy/auth prefix:
 
-Invalid or unknown export id:
+- `GET /api/health`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/warga-only`
+- `GET /api/rt-rw-only`
+- `GET /api/admin-only`
+- `GET /api/mitra-only`
 
-- non-numeric id returns `400 VALIDATION_ERROR`.
-- missing billing record returns `404 BILLING_NOT_FOUND`.
+MVP API v1:
 
-PDF export is still placeholder. No PDFKit/Puppeteer or other PDF dependency is installed for SYNC-68.
+- `POST /api/v1/sensor/reading`
+- `GET /api/v1/quality/current`
+- `GET /api/v1/quality/history`
+- `GET /api/v1/alerts/active`
+- `GET /api/v1/alerts/history`
+- `PATCH /api/v1/alerts/:id/status`
+- `GET /api/v1/tanks/status`
+- `GET /api/v1/tanks/:tank_code/history`
+- `GET /api/v1/soil/heatmap`
+- `GET /api/v1/soil/prediction`
+- `POST /api/v1/pumps/:pump_code/control`
+- `GET /api/v1/pumps/:pump_code/status`
+- `GET /api/v1/pumps/:pump_code/logs`
+- `GET /api/v1/billing/my`
+- `GET /api/v1/billing/summary`
+- `GET /api/v1/billing/:id/export-pdf`
 
-### Invalid Month/Year Tests
+Detail request/response ada di `docs/API_DOCUMENTATION.md`.
 
-These should return `400 VALIDATION_ERROR`:
+## Manual Test Per Fitur
 
-```cmd
-curl "http://localhost:5000/api/v1/billing/my?month=13&year=2026" ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
+1. Auth: health check, register warga, login demo warga/pengurus, `GET /api/auth/me`, cek 401 tanpa token dan 403 role salah.
+2. Quality: seed `NODE-001`, kirim `POST /api/v1/sensor/reading` dengan `X-API-Key`, baca current/history sebagai warga/pengurus.
+3. Alerts: kirim quality `UNSAFE`, cek `GET /api/v1/alerts/active`, update status `HANDLING`/`RESOLVED` sebagai pengurus.
+4. Tanks: seed `TANK-001`, publish MQTT tank status, cek `GET /api/v1/tanks/status` dan history.
+5. Soil: login pengurus, cek heatmap dan prediction; pastikan warga mendapat 403.
+6. Pumps: seed `PUMP-001`, login pengurus, coba control `ON/OFF`; jika MQTT nonaktif harus menerima `MQTT_NOT_READY` tanpa server crash.
+7. Billing: jalankan seed billing, login warga untuk `billing/my`, login pengurus untuk `billing/summary` dan `export-pdf` placeholder.
 
-```cmd
-curl "http://localhost:5000/api/v1/billing/my?month=abc&year=2026" ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
+Checklist detail ada di `docs/POSTMAN_TESTING_CHECKLIST.md`.
 
-```cmd
-curl "http://localhost:5000/api/v1/billing/my?month=6&year=abc" ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
+## MQTT
 
-### Billing RBAC Forbidden Tests
+Broker yang digunakan adalah HiveMQ Cloud via MQTT over TLS (`mqtts`) port `8883`. Topic aktif:
 
-WARGA must not access summary:
+- `airbersih/sensor/NODE-001/quality`
+- `airbersih/tank/TANK-001/status`
+- `airbersih/pump/PUMP-001/status`
+- `airbersih/pump/PUMP-001/control`
 
-```cmd
-curl "http://localhost:5000/api/v1/billing/summary?month=6&year=2026" ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
+Topic relay berikut bersifat reserved/future/optional dan hanya dipakai jika konfigurasi relay auto-off diaktifkan:
 
-Expected: `403 FORBIDDEN`.
+- `airbersih/relay/NODE-001/status`
+- `airbersih/relay/NODE-001/control`
 
-WARGA must not access export:
+Detail kontrak ada di `docs/MQTT_CONTRACT.md`.
 
-```cmd
-curl http://localhost:5000/api/v1/billing/<BILLING_ID>/export-pdf ^
-  -H "Authorization: Bearer <WARGA_TOKEN>"
-```
+## Deploy Singkat
 
-Expected: `403 FORBIDDEN`.
+Platform contoh: Railway atau Render.
+
+1. Buat PostgreSQL production dan jalankan migration/seed yang diperlukan.
+2. Set env production: `NODE_ENV`, `PORT`, `CORS_ORIGIN`, `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `DEVICE_API_KEY`, dan seluruh env MQTT jika MQTT production aktif.
+3. Gunakan credential HiveMQ production dari private channel.
+4. Deploy dengan start command `npm start`.
+5. Smoke test `GET /api/health`, login demo/non-demo production, dan endpoint v1 yang dibutuhkan frontend/IoT.
+
+## Known Limitations
+
+- `turbidity_raw` masih raw ADC dan belum dikalibrasi menjadi NTU.
+- `water_level_raw` masih raw ADC dan belum dikalibrasi menjadi liter, persentase, atau centimeter.
+- Soil prediction masih deterministic mock; `model_status=PENDING`.
+- BMKG adapter placeholder dan tidak melakukan production external call.
+- Firebase hanya mirror/prototype dari IoT, bukan source of truth backend.
+- Export PDF masih placeholder JSON; belum ada dependency PDF production.
+- Payment gateway belum ada.
+- FCM/Bull/Redis tidak dipakai production.
+- Marketplace Tukang Air dihapus dari MVP.
+- `ADMIN_SISTEM` dan `MITRA_TUKANG` masih legacy/future role.
+- Filtering area/RT/RW belum detail karena schema wilayah belum tersedia.
+- WebSocket belum diimplementasikan.
+
+Daftar lengkap ada di `docs/KNOWN_LIMITATIONS.md`.
+
+## Notes untuk Frontend
+
+- Gunakan `Authorization: Bearer <token>` untuk endpoint yang membutuhkan JWT.
+- Auth masih memakai prefix legacy `/api/auth`, bukan `/api/v1/auth`.
+- Endpoint fitur MVP memakai prefix `/api/v1`.
+- Gunakan role aktif MVP saja untuk fitur final: `WARGA` dan `PENGURUS_RT_RW`.
+- Jangan tampilkan Marketplace Tukang Air sebagai fitur aktif MVP.
+- Untuk pump control, body wajib `{ "command": "ON" }` atau `{ "command": "OFF" }`; jangan gunakan `action`.
+
+## Notes untuk IoT
+
+- PostgreSQL backend adalah source of truth; MQTT hanya transport.
+- `timestamp` dari ESP32 boleh `null`; backend mengisi `received_at` dengan waktu server.
+- Quality memakai `turbidity_raw`, bukan `turbidity_ntu`.
+- Tank memakai `water_level` payload yang disimpan sebagai `water_level_raw`.
+- Invalid JSON di MQTT diabaikan dan tidak boleh membuat server crash.
+- Jika MQTT belum siap, backend REST tetap berjalan.
+
+## Suggested Commit Grouping
+
+Saran commit untuk SYNC-77, tanpa menjalankan rebase/reset otomatis:
+
+1. `docs: update backend README for MVP final scope`
+2. `docs: add REST API documentation`
+3. `docs: add MQTT contract and testing checklist`
+4. `docs: document known backend limitations`
