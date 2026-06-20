@@ -12,6 +12,7 @@
     "db:migrate": "dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/001_create_sprint1_schema.sql",
     "db:seed": "dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/seeds/001_seed_roles.sql",
     "db:seed:demo": "dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/seeds/002_seed_demo_users.sql",
+    "db:seed:billing": "dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/seeds/003_seed_billing_demo.sql",
     "test": "echo \"Manual testing with Postman or Thunder Client\""
   },
   "keywords": [],

@@ -982,3 +982,208 @@ Regression tests after MQTT service update:
 - Tank topic still works: `airbersih/tank/TANK-001/status`
 
 Both should continue to parse, validate, and persist messages as documented in SYNC-62 and SYNC-64.
+
+## SYNC-68 Billing Basic
+
+SYNC-68 implements basic consumption billing for MVP. It does not implement payment gateway, invoice email, tiered pricing, relay cut-off based on unpaid bills, marketplace, Admin endpoints, or Mitra endpoints.
+
+### Required Billing Migration
+
+Run the base migration and previous patches first. If `005_create_billing_schema.sql` is part of your local branch, run it after migration 004:
+
+```cmd
+npm run db:migrate
+```
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/002_add_iot_raw_fields.sql
+```
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/003_create_soil_schema.sql
+```
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/004_patch_pump_operation_logs_audit_fields.sql
+```
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/005_create_billing_schema.sql
+```
+
+The billing schema includes:
+
+- `water_connections`
+- `monthly_consumption_summaries`
+- `tariff_config`
+- `billing_records` patch fields: `connection_id`, `summary_id`, `rate_per_m3`, `total_m3`
+
+Do not edit old migrations. If the billing schema needs another change after `005` has already been run, create a new patch migration such as `006_patch_billing_schema.sql` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+
+### Billing Demo Seed
+
+Run role and demo-user seeds before billing seed:
+
+```cmd
+npm run db:seed
+```
+
+```cmd
+npm run db:seed:demo
+```
+
+Then run:
+
+```cmd
+npm run db:seed:billing
+```
+
+Billing seed uses demo account:
+
+- `warga@airbersih.test` / `password123` - role `WARGA`
+- `pengurus@airbersih.test` / `password123` - role `PENGURUS_RT_RW`
+
+The billing seed is idempotent and is safe to run multiple times. It fails clearly if `warga@airbersih.test` does not exist, so run `npm run db:seed:demo` first.
+
+Seeded billing demo period:
+
+- `month=6`
+- `year=2026`
+- `total_usage_liters=12500`
+- active demo tariff `rate_per_m3=5000`
+- expected `total_m3=12.5`
+- expected `total_amount=62500`
+
+### Billing Calculation Rules
+
+Billing service reads `monthly_consumption_summaries.total_usage_liters` and aliases it as `total_liters` in API responses.
+
+Formula:
+
+```text
+total_m3 = total_usage_liters / 1000
+total_amount = total_m3 * rate_per_m3
+```
+
+`rate_per_m3` is read from the latest active `tariff_config` row by `created_at DESC, id DESC`. If no active tariff exists, the API returns a clear `TARIFF_NOT_CONFIGURED` error. Tariff is not hardcoded in service code.
+
+### Billing Endpoints
+
+All endpoints use `/api/v1` and existing `apiResponse.js` response format.
+
+- `GET /api/v1/billing/my?month=X&year=Y` - JWT role `WARGA` only.
+- `GET /api/v1/billing/summary?month=X&year=Y` - JWT role `PENGURUS_RT_RW` only.
+- `GET /api/v1/billing/:id/export-pdf` - JWT role `PENGURUS_RT_RW` only.
+
+`WARGA` billing always uses `req.user.id`. The API does not accept `user_id` from query, body, or params.
+
+For MVP, Pengurus summary returns aggregate for all active connections. TODO: add area/RT/RW filtering when area schema is available.
+
+### WARGA Billing My Test
+
+Login as `warga@airbersih.test`, then call:
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/my?month=6&year=2026" ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+Expected: `200 OK`, personal billing items only for the logged-in WARGA.
+
+Empty-period test:
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/my?month=7&year=2026" ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+Expected: if the WARGA has a connection but no monthly summary, item returns `total_liters=0`, `total_m3=0`, `total_amount=0`, and `has_summary=false`. If the WARGA has no connection, response returns `items: []` and totals `0`.
+
+### PENGURUS Billing Summary Test
+
+Login as `pengurus@airbersih.test`, then call:
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/summary?month=6&year=2026" ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>"
+```
+
+Expected: `200 OK`, aggregate all active connections for MVP.
+
+### Export Placeholder Test
+
+Find a seeded billing record id:
+
+```sql
+SELECT id, connection_id, period_month, period_year, total_amount, status
+FROM billing_records
+ORDER BY id DESC
+LIMIT 5;
+```
+
+Then call as Pengurus:
+
+```cmd
+curl http://localhost:5000/api/v1/billing/<BILLING_ID>/export-pdf ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>"
+```
+
+Expected response is JSON placeholder, not a fake PDF file:
+
+```json
+{
+  "success": true,
+  "message": "PDF export placeholder retrieved",
+  "data": {
+    "export_status": "PLACEHOLDER",
+    "content_type": "application/json",
+    "todo": "Generate real PDF after PDF dependency is approved"
+  }
+}
+```
+
+Invalid or unknown export id:
+
+- non-numeric id returns `400 VALIDATION_ERROR`.
+- missing billing record returns `404 BILLING_NOT_FOUND`.
+
+PDF export is still placeholder. No PDFKit/Puppeteer or other PDF dependency is installed for SYNC-68.
+
+### Invalid Month/Year Tests
+
+These should return `400 VALIDATION_ERROR`:
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/my?month=13&year=2026" ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/my?month=abc&year=2026" ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/my?month=6&year=abc" ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+### Billing RBAC Forbidden Tests
+
+WARGA must not access summary:
+
+```cmd
+curl "http://localhost:5000/api/v1/billing/summary?month=6&year=2026" ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+Expected: `403 FORBIDDEN`.
+
+WARGA must not access export:
+
+```cmd
+curl http://localhost:5000/api/v1/billing/<BILLING_ID>/export-pdf ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+Expected: `403 FORBIDDEN`.

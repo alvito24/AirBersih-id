@@ -9,6 +9,7 @@ const alertRoutes = require('./routes/alert.routes');
 const tankRoutes = require('./routes/tank.routes');
 const soilRoutes = require('./routes/soil.routes');
 const pumpRoutes = require('./routes/pump.routes');
+const billingRoutes = require('./routes/billing.routes');
 const { notFoundHandler, errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
@@ -25,6 +26,7 @@ app.use('/api/v1', alertRoutes);
 app.use('/api/v1', tankRoutes);
 app.use('/api/v1', soilRoutes);
 app.use('/api/v1', pumpRoutes);
+app.use('/api/v1', billingRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
