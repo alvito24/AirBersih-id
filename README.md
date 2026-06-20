@@ -59,9 +59,19 @@ PGPASSWORD=your_password
 
 JWT_SECRET=change_this_secret
 JWT_EXPIRES_IN=1d
+
+MQTT_ENABLED=false
+MQTT_HOST=your-hivemq-host
+MQTT_PORT=8883
+MQTT_USERNAME=your-hivemq-username
+MQTT_PASSWORD=your-hivemq-password
+MQTT_PROTOCOL=mqtts
+MQTT_CLIENT_ID=airbersih-backend-dev
 ```
 
 Script `psql` memakai variable standar PostgreSQL (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) dari `.env`. `DATABASE_URL` tetap tersedia untuk kebutuhan aplikasi Node.js.
+
+MQTT masih nonaktif secara default untuk development. Isi credential HiveMQ di `.env` dan ubah `MQTT_ENABLED=true` hanya saat task MQTT ingestion/control mulai diimplementasikan.
 
 Jangan commit file `.env` dan jangan gunakan secret contoh untuk production.
 

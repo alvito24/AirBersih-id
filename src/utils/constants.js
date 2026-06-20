@@ -3,6 +3,7 @@ const APP_NAME = 'AirBersih Backend';
 const ROLES = {
   WARGA: 'WARGA',
   PENGURUS_RT_RW: 'PENGURUS_RT_RW',
+  // Legacy/future roles: keep for SYNC-60 auth compatibility, not active MVP feature roles.
   ADMIN_SISTEM: 'ADMIN_SISTEM',
   MITRA_TUKANG: 'MITRA_TUKANG',
 };

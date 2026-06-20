@@ -1,616 +1,996 @@
-# AGENTS.md — Backend Sprint 1 AirBersih.id / SYNC
+# AGENTS.md — AirBersih.id Backend Agent Rules
+
+> Dokumen ini adalah aturan kerja untuk AI Coding Agent di IDE ketika mengerjakan backend AirBersih.id.  
+> Agent wajib membaca dokumen ini sebelum membaca file lain atau mengubah kode.
+
+---
 
 ## 1. Project Context
 
-AirBersih.id / SYNC adalah project final multi-divisi yang melibatkan TechnoPreneur/PM, UI/UX, IoT, dan Software Development. File ini dibuat khusus untuk AI coding agent di IDE agar agent membantu pengerjaan backend Sprint 1 secara terarah, realistis, dan tidak melebar dari scope.
+AirBersih.id adalah sistem monitoring dan manajemen air bersih berbasis web dan IoT. Backend berperan sebagai pusat API, autentikasi, penyimpanan data aplikasi, integrasi MQTT, dan penyedia data untuk frontend.
 
-User adalah backend developer. Tugas backend Sprint 1 hanya fokus pada:
+### Tech Stack Backend
 
-1. `SYNC-59` — Setup proyek, arsitektur, dan database schema.
-2. `SYNC-60` — Auth JWT dan RBAC 4 role.
+- Runtime: Node.js
+- Framework: Express.js
+- Database: PostgreSQL
+- Authentication: JWT
+- Password hashing: bcrypt
+- IoT realtime broker: HiveMQ Cloud via MQTT
+- API style: REST API
+- Optional realtime layer: WebSocket, only if explicitly requested by task
+- Firebase: mirror/prototype monitoring dari tim IoT, bukan source of truth backend
 
-Tech stack backend:
+### Source of Truth Backend
 
-- Node.js
-- Express.js
-- PostgreSQL
-- JWT
-- bcrypt
-- dotenv
-- CORS
+Urutan acuan kerja backend:
 
-Role sistem:
+1. Blueprint final AirBersih.id v1.1
+2. `arah-final.md`
+3. `docs/TECHNICAL_DESIGN_BACKEND_FINAL.md`
+4. Jira/timeline Software Development backend
+5. Konfirmasi final tim IoT
+6. Existing codebase backend
+
+Jika ada konflik antar dokumen, ikuti urutan source of truth di atas dan jelaskan konflik tersebut sebelum coding.
+
+---
+
+## 2. Current Backend Status
+
+### SYNC-59 — Done
+
+Backend foundation sudah selesai.
+
+Yang sudah ada:
+
+- Express.js backend setup
+- Struktur project backend
+- PostgreSQL configuration
+- Migration/schema awal Sprint 1
+- Health check endpoint
+- README awal
+- `.env.example`
+- GitHub push
+- Jira Done
+
+### SYNC-60 — Done
+
+Auth dan RBAC sudah selesai.
+
+Yang sudah ada:
+
+- Register endpoint
+- Login endpoint
+- Logout endpoint
+- Current user endpoint
+- JWT authentication
+- bcrypt password hashing
+- `authenticate` middleware
+- `authorizeRole` middleware
+- Protected route example untuk role
+- GitHub push
+- Jira Done
+
+### Rules untuk status saat ini
+
+Agent wajib menjaga hasil SYNC-59 dan SYNC-60.
+
+Agent tidak boleh:
+
+- Rewrite setup backend
+- Rewrite struktur project dari nol
+- Rewrite auth/RBAC
+- Menghapus role lama
+- Menghapus migration lama
+- Mengubah migration lama yang sudah berjalan
+- Drop atau recreate database tanpa perintah eksplisit
+
+Jika sebuah task membutuhkan perubahan terhadap struktur lama, buat patch minimal dan jelaskan alasan teknisnya.
+
+---
+
+## 3. Active MVP Scope
+
+Blueprint final AirBersih.id v1.1 menghapus Fitur 7 Marketplace Tukang Air dan Role Admin Sistem dari MVP aktif. Backend berikutnya hanya mengerjakan fitur 1–6.
+
+### Active Features
+
+1. Kualitas Air
+   - MQTT ingestion kualitas air
+   - Read API kualitas air current/history
+   - Status kualitas air berbasis enum final
+
+2. Alert
+   - Alert basic dari status kualitas air
+   - Active alert
+   - Alert history
+   - Update status alert oleh Pengurus RT/RW
+
+3. Tangki
+   - MQTT ingestion tank status
+   - Read API tank current/history
+   - Raw water level handling
+
+4. Serapan Tanah
+   - Soil reading API
+   - Soil heatmap basic
+   - Soil prediction placeholder/basic sesuai kesiapan IS
+
+5. Remote Pompa
+   - Pump control via MQTT
+   - Pump status ingestion
+   - Pump operation logs
+
+6. Billing Basic
+   - Consumption ingestion/basic data
+   - Billing summary basic
+   - Warga billing read-only
+   - Pengurus RT/RW billing aggregation basic
+
+### Active MVP Roles
+
+Endpoint baru hanya boleh dirancang untuk role aktif berikut:
+
+- `WARGA`
+- `PENGURUS_RT_RW`
+
+### Legacy/Future Roles
+
+Role berikut boleh tetap ada di database dan kode auth karena sudah dibuat pada SYNC-60, tetapi tidak dipakai untuk fitur aktif MVP:
+
+- `ADMIN_SISTEM`
+- `MITRA_TUKANG`
+
+Agent tidak boleh menghapus role legacy/future tersebut. Cukup anggap sebagai role nonaktif untuk MVP saat ini.
+
+---
+
+## 4. Out of Scope
+
+Agent tidak boleh mengerjakan fitur berikut kecuali user secara eksplisit membuka scope baru dan memperbarui blueprint:
+
+- Marketplace Tukang Air
+- Service request tukang
+- Tracking mitra
+- Service report
+- Rating mitra
+- NFC check-in
+- PIR presence
+- GPS tracking
+- Endpoint Mitra Tukang
+- Dashboard Admin Sistem baru
+- Manajemen mitra
+- Upload foto laporan kerja mitra
+- Partner availability
+- Partner assignment
+- Partner location tracking
+- Service request WebSocket tracking
+
+Jika ada file lama, table lama, endpoint draft lama, atau kontrak IoT lama yang masih menyebut fitur di atas, tandai sebagai legacy/future dan jangan implementasikan.
+
+---
+
+## 5. Backend Task Roadmap
+
+Backend berikutnya mengikuti task Jira/timeline berikut:
+
+### SYNC-62 / SD-04
+Water Quality MQTT Ingestion + Quality Read API
+
+Scope utama:
+
+- MQTT subscribe `airbersih/sensor/NODE-001/quality`
+- Simpan `turbidity_raw`, `status_category`, `raw_payload`, `received_at`
+- Read API current/history
+- Optional REST fallback `/api/v1/sensor/reading`
+
+### SYNC-63 / SD-05
+Alert Basic
+
+Scope utama:
+
+- Create alert basic
+- Active alert
+- Alert history
+- Update alert status
+- Role guard untuk Pengurus RT/RW
+- Jangan membuat FCM/Bull/Redis production kecuali diminta eksplisit
+
+### SYNC-64 / SD-06
+Tank Monitoring
+
+Scope utama:
+
+- MQTT subscribe `airbersih/tank/TANK-001/status`
+- Simpan `water_level` raw ADC sebagai raw field
+- Simpan `pump_status`
+- Tank current/history API
+
+### SYNC-66 / SD-07
+Soil Heatmap & Prediction API
+
+Scope utama:
+
+- Soil reading API
+- Heatmap basic
+- Prediction placeholder/basic
+- Integrasi model IS hanya jika output model sudah tersedia dan dikonfirmasi
+
+### SYNC-67 / SD-08
+Pump Control MQTT
+
+Scope utama:
+
+- Pump control endpoint
+- Publish MQTT command ke `airbersih/pump/PUMP-001/control`
+- Payload command wajib `{ "command": "ON" }` atau `{ "command": "OFF" }`
+- Pump status ingestion/logs
+
+### SYNC-68 / SD-09
+Billing Basic
+
+Scope utama:
+
+- Consumption data basic
+- Billing summary basic
+- Billing personal Warga
+- Billing aggregate Pengurus RT/RW
+- PDF export hanya jika task eksplisit meminta
+
+### SYNC-75
+Deploy Backend
+
+Scope utama:
+
+- Deploy backend ke Railway/Render atau platform yang disepakati
+- Set env production
+- Smoke test endpoint production
+- Share backend URL ke Frontend dan IoT
+
+### SYNC-77
+Documentation
+
+Scope utama:
+
+- README update
+- API reference
+- MQTT integration docs
+- Postman/manual test guide
+- Environment setup guide
+
+### SYNC-78
+Final Review
+
+Scope utama:
+
+- Review konsistensi implementasi vs blueprint final
+- Review route/API vs UI/UX flow
+- Review feature claim vs fitur yang benar-benar jalan
+- Final bugfix minor
+- Freeze repository
+
+---
+
+## 6. Role & RBAC Rules
+
+### Role yang tetap ada di database
 
 - `WARGA`
 - `PENGURUS_RT_RW`
 - `ADMIN_SISTEM`
 - `MITRA_TUKANG`
 
-Backend Sprint 1 harus mudah dipahami oleh mahasiswa/developer tim, maintainable, dan tidak over-engineered.
-
----
-
-## 2. Sprint 1 Scope
-
-Sprint 1 hanya mencakup fondasi backend dan auth/RBAC.
-
-### Must Implement
-
-- Inisialisasi project backend Express.js.
-- Struktur folder backend yang rapi.
-- Setup environment config dengan dotenv.
-- Setup PostgreSQL connection.
-- Setup CORS.
-- Health check endpoint.
-- Database schema minimum untuk Sprint 1.
-- Auth endpoint:
-  - `POST /api/auth/register`
-  - `POST /api/auth/login`
-  - `POST /api/auth/logout`
-  - `GET /api/auth/me`
-- Password hashing dengan bcrypt.
-- JWT generation dan verification.
-- Middleware authentication.
-- Middleware RBAC / role authorization.
-- Protected route example untuk setiap role.
-- README minimal.
-- `.env.example`.
-- Dokumentasi endpoint minimal atau Postman testing notes.
-
-### Database Tables for Sprint 1
-
-Create schema/migration for:
-
-- `users`
-- `roles`
-- `sensor_nodes`
-- `water_quality_readings`
-- `alerts`
-- `alert_thresholds`
-- `water_tanks`
-- `pumps`
-- `billing_records`
-- `service_requests`
-
-`users` and `roles` must be functional for auth. Other tables may be basic schema/placeholders for next sprint.
-
----
-
-## 3. Out of Scope
-
-Do not implement features outside Sprint 1.
-
-### Do Not Build Yet
-
-- Dashboard kualitas air real-time.
-- Full water quality API.
-- Alert otomatis full.
-- Firebase Cloud Messaging / FCM.
-- MQTT relay execution.
-- WebSocket real-time.
-- Monitoring tangki full.
-- Tank prediction service.
-- Billing calculation.
-- PDF export.
-- Marketplace tukang full.
-- Tracking mitra.
-- GPS integration.
-- NFC integration.
-- ESP32-CAM upload.
-- PIR verification.
-- ML soil prediction.
-- BMKG API integration.
-- Admin dashboard lengkap.
-- PWA/offline feature.
-- Production deployment, unless explicitly requested.
-
-If asked to implement one of the items above, stop and ask for confirmation because it is outside Sprint 1.
-
----
-
-## 4. Backend Architecture Rules
-
-Use a simple MVC / Clean Architecture-inspired structure. Keep it understandable and avoid unnecessary abstraction.
-
-Recommended structure:
-
-```txt
-backend/
-├─ src/
-│  ├─ config/
-│  │  ├─ env.js
-│  │  └─ db.js
-│  ├─ controllers/
-│  │  ├─ auth.controller.js
-│  │  └─ health.controller.js
-│  ├─ routes/
-│  │  ├─ auth.routes.js
-│  │  ├─ health.routes.js
-│  │  └─ protected.routes.js
-│  ├─ middlewares/
-│  │  ├─ authenticate.js
-│  │  ├─ authorizeRole.js
-│  │  └─ errorHandler.js
-│  ├─ repositories/
-│  │  ├─ user.repository.js
-│  │  └─ role.repository.js
-│  ├─ services/
-│  │  ├─ auth.service.js
-│  │  └─ token.service.js
-│  ├─ database/
-│  │  ├─ migrations/
-│  │  └─ seeds/
-│  ├─ utils/
-│  │  ├─ apiResponse.js
-│  │  ├─ constants.js
-│  │  └─ password.js
-│  ├─ app.js
-│  └─ server.js
-├─ docs/
-├─ .env.example
-├─ README.md
-└─ package.json
-```
-
-### Layer Responsibility
-
-- `routes`: define endpoint paths and attach middlewares/controllers.
-- `controllers`: handle request/response only.
-- `services`: contain business logic.
-- `repositories`: contain database queries.
-- `middlewares`: authentication, authorization, and error handling.
-- `config`: environment and database configuration.
-- `database`: migrations and seed scripts.
-- `utils`: reusable helpers.
-- `app.js`: Express app setup.
-- `server.js`: server listener.
-
-### Architecture Rules
-
-- Keep controllers thin.
-- Put auth logic in services.
-- Put database queries in repositories.
-- Do not put SQL queries directly inside routes.
-- Do not mix routing, validation, database access, and response formatting in one file.
-- Prefer clarity over abstraction.
-
----
-
-## 5. Database Rules
-
-Use PostgreSQL as backend database for Sprint 1.
-
-### General Rules
-
-- Use consistent table names in `snake_case`.
-- Use consistent column names in `snake_case`.
-- Every main table should have `id`, `created_at`, and optionally `updated_at`.
-- Do not store plaintext passwords.
-- Use foreign keys where the relationship is required.
-- Keep schema simple enough for Sprint 1.
-
-### Required Functional Tables
-
-#### `roles`
-
-Purpose: store available roles.
-
-Minimum columns:
-
-- `id`
-- `code` unique, e.g. `WARGA`
-- `name`
-- `description` nullable
-- `created_at`
-
-#### `users`
-
-Purpose: store user accounts for auth and RBAC.
-
-Minimum columns:
-
-- `id`
-- `role_id` FK to `roles.id`
-- `name`
-- `email` unique
-- `password_hash`
-- `phone` nullable
-- `is_active`
-- `created_at`
-- `updated_at`
-
-### Required Placeholder Tables
-
-Create simple schema for:
-
-- `sensor_nodes`
-- `water_quality_readings`
-- `alerts`
-- `alert_thresholds`
-- `water_tanks`
-- `pumps`
-- `billing_records`
-- `service_requests`
-
-These tables do not need full feature logic in Sprint 1, but their schema should exist as foundation for later sprint.
-
-### Seeder Rules
-
-Seed default roles:
+### Role aktif MVP
 
 - `WARGA`
 - `PENGURUS_RT_RW`
+
+### Role legacy/future
+
 - `ADMIN_SISTEM`
 - `MITRA_TUKANG`
 
-Seed demo users only if needed for manual testing.
+### Rules endpoint baru
+
+- Endpoint baru untuk fitur 1–6 hanya boleh menargetkan `WARGA` dan `PENGURUS_RT_RW`.
+- Endpoint RT/RW-only wajib memakai `authenticate` dan `authorizeRole("PENGURUS_RT_RW")`.
+- Endpoint Warga wajib read-only kecuali task secara eksplisit mengizinkan write action.
+- Endpoint IoT ingestion memakai MQTT atau device/fallback mechanism, bukan JWT user.
+- Jangan membuat endpoint baru untuk `MITRA_TUKANG`.
+- Jangan membuat dashboard/admin endpoint baru untuk `ADMIN_SISTEM`.
+
+### Matrix akses backend fitur 1–6
+
+| Feature | WARGA | PENGURUS_RT_RW |
+|---|---|---|
+| Kualitas Air | Read current/history area sendiri | Read current/history, raw log, filter node |
+| Alert | Read alert terkait area sendiri | Read active/history, update status |
+| Tangki | Read status/history komunal | Read status/history semua tangki wilayah |
+| Serapan Tanah | No access by default | Read heatmap/prediction |
+| Remote Pompa | No control access | Control pump, read logs/status |
+| Billing Basic | Read billing sendiri | Read aggregate/summary warga wilayah |
+
+Jika scope wilayah/area belum tersedia di schema, gunakan implementasi sederhana berbasis node/tank ID dan beri TODO untuk filtering wilayah.
 
 ---
 
-## 6. Authentication Rules
+## 7. Architecture Rules
 
-Authentication uses JWT and bcrypt.
+### Backend architecture
 
-### Register
+Gunakan struktur existing dari SYNC-59.
 
-- Public endpoint.
-- Default registered role is `WARGA`.
-- Validate required fields.
-- Reject duplicate email.
-- Hash password with bcrypt before storing.
-- Never return `password_hash` in response.
+Layer yang disarankan:
 
-### Login
+- `routes/`
+- `controllers/`
+- `services/`
+- `repositories/`
+- `middlewares/`
+- `config/`
+- `utils/`
+- `database/migrations/`
+- `database/seeds/`
 
-- Public endpoint.
-- Validate email and password.
-- Compare password with bcrypt.
-- Reject invalid credentials with generic error message.
-- Generate JWT if credentials are valid.
-- Return token and safe user object.
+Jangan membuat struktur baru yang mengganti total struktur lama.
 
-### Logout
+### Source of truth data
 
-- JWT is stateless for Sprint 1.
-- Logout may simply return success response.
-- Frontend is responsible for removing token.
-- Do not implement token blacklist unless explicitly requested.
+- PostgreSQL backend adalah source of truth aplikasi backend.
+- Firebase hanya mirror/prototype monitoring dari tim IoT.
+- MQTT adalah transport realtime, bukan database.
+- REST API adalah interface utama frontend ke backend.
 
-### Current User
+### WebSocket
 
-- `GET /api/auth/me` must require Bearer token.
-- Return safe user object only.
-- Do not expose password hash.
-
-### JWT Payload
-
-Use minimal payload:
-
-- `sub`: user id
-- `email`: user email
-- `role`: role code
-
-Do not put sensitive data in JWT.
+WebSocket optional. Jangan implement WebSocket kecuali task secara eksplisit meminta atau user approve.
 
 ---
 
-## 7. RBAC Rules
+## 8. Migration Rules
 
-RBAC must be simple and explicit.
+Agent wajib mengikuti rules berikut:
 
-### Role Constants
+- Jangan edit migration lama dari SYNC-59.
+- Jangan mengubah file migration lama yang sudah pernah dijalankan.
+- Jangan drop table lama.
+- Jangan menghapus tabel lama.
+- Buat migration baru untuk patch.
+- Migration patch yang disarankan untuk IoT raw fields:
 
-Use these exact role codes:
-
-```txt
-WARGA
-PENGURUS_RT_RW
-ADMIN_SISTEM
-MITRA_TUKANG
+```text
+002_add_iot_raw_fields.sql
 ```
 
-### Middleware Rules
+### Migration patch goals
 
-Implement two middlewares:
+Migration baru boleh menambahkan field/tabel berikut sesuai kebutuhan task:
 
-1. `authenticate`
-   - Reads `Authorization: Bearer <token>`.
-   - Verifies JWT.
-   - Attaches authenticated user payload to request.
-   - Returns 401 if token missing or invalid.
+#### `water_quality_readings`
 
-2. `authorizeRole(...allowedRoles)`
-   - Runs after `authenticate`.
-   - Checks whether authenticated user role is allowed.
-   - Returns 403 if role is not allowed.
+Tambahkan jika belum ada:
 
-### Protected Route Examples
+- `turbidity_raw`
+- `source`
+- `raw_payload`
+- `received_at`
 
-Create example routes for manual testing:
+Rules:
 
-- `GET /api/warga-only` → `WARGA`
-- `GET /api/rt-rw-only` → `PENGURUS_RT_RW`
-- `GET /api/admin-only` → `ADMIN_SISTEM`
-- `GET /api/mitra-only` → `MITRA_TUKANG`
+- `turbidity_raw` adalah raw ADC.
+- `turbidity_ntu` jika sudah ada harus tetap nullable.
+- Jangan isi `turbidity_ntu` dengan raw ADC.
+- `water_temp_celsius` harus nullable karena sensor suhu belum dikirim.
+- `recorded_at` boleh null jika timestamp ESP32 null.
+- `received_at` wajib diisi waktu server pada ingestion baru.
 
-These routes are only proof that RBAC works.
+#### `tank_level_readings`
+
+Jika belum ada, buat table. Jika sudah ada, patch field raw.
+
+Field minimal:
+
+- `id`
+- `tank_id`
+- `water_level_raw` atau field setara untuk raw ADC
+- `pump_status`
+- `source`
+- `raw_payload`
+- `recorded_at`
+- `received_at`
+- `created_at`
+
+Rules:
+
+- `water_level` dari IoT adalah raw ADC.
+- Jangan menganggap `water_level` sebagai liter, persentase, atau centimeter.
+- Field seperti `distance_cm`, `volume_liters`, dan `percentage` boleh ada tetapi harus nullable sampai kalibrasi siap.
+
+#### `pump_operation_logs`
+
+Jika belum ada, buat table untuk status/log pompa basic.
+
+Field minimal:
+
+- `id`
+- `pump_id`
+- `status`
+- `source`
+- `raw_payload`
+- `received_at`
+- `created_at`
+
+#### Legacy tables
+
+Jika tabel `service_requests` atau tabel marketplace lain sudah terlanjur ada, jangan dihapus. Anggap sebagai placeholder/future.
 
 ---
 
-## 8. API Response Standard
+## 9. MQTT Rules
 
-Use consistent API responses.
+### Broker
 
-### Success Response
+Gunakan HiveMQ Cloud.
+
+Jangan gunakan:
+
+- EMQX public sebagai final backend config
+- Topic lama `water/...`
+- Topic lama `tanks/TANK-001` sebagai final contract
+
+### Credential
+
+- Credential wajib berasal dari `.env`.
+- Jangan hardcode credential HiveMQ.
+- Jangan commit `.env`.
+- `.env.example` hanya boleh berisi placeholder.
+- Jika credential belum tersedia, implement graceful disabled mode.
+
+### MQTT env variables
+
+Tambahkan atau gunakan placeholder berikut di `.env.example` dan env config jika task membutuhkan MQTT:
+
+```env
+MQTT_ENABLED=true
+MQTT_HOST=your-hivemq-host
+MQTT_PORT=8883
+MQTT_USERNAME=your-hivemq-username
+MQTT_PASSWORD=your-hivemq-password
+MQTT_PROTOCOL=mqtts
+MQTT_CLIENT_ID=airbersih-backend-dev
+```
+
+### MQTT disabled fallback
+
+Jika:
+
+```env
+MQTT_ENABLED=false
+```
+
+Maka server harus tetap bisa berjalan tanpa koneksi MQTT.
+
+Rules:
+
+- Jangan crash server jika MQTT disabled.
+- Log bahwa MQTT disabled.
+- REST API tetap berjalan.
+- Health check tetap berjalan.
+
+### Final subscribe topics
+
+Backend boleh subscribe sesuai task:
+
+```text
+airbersih/sensor/NODE-001/quality
+airbersih/tank/TANK-001/status
+airbersih/pump/PUMP-001/status
+airbersih/relay/NODE-001/status
+```
+
+Untuk SD-04, subscribe hanya topic quality kecuali task mengizinkan topic lain.
+
+### Final publish command topics
+
+Backend boleh publish command sesuai task:
+
+```text
+airbersih/pump/PUMP-001/control
+airbersih/relay/NODE-001/control
+```
+
+### Control payload rule
+
+Gunakan field `command`, bukan `action`.
+
+Valid:
+
+```json
+{ "command": "ON" }
+```
+
+```json
+{ "command": "OFF" }
+```
+
+Tidak valid untuk kontrak final:
+
+```json
+{ "action": "ON" }
+```
+
+### MQTT connection strategy
+
+Jika task mengimplementasikan MQTT client, wajib memperhatikan:
+
+- TLS/mqtts support untuk HiveMQ Cloud
+- Reconnect strategy
+- Error logging yang aman
+- Tidak log credential
+- JSON parse error handling
+- Invalid payload handling
+- MQTT disabled mode
+- Clean shutdown jika memungkinkan
+
+---
+
+## 10. Sensor Data Rules
+
+### Air quality payload final
+
+Backend harus siap menerima payload final berikut dari MQTT:
+
+```json
+{
+  "node_id": "NODE-001",
+  "turbidity_raw": 2875,
+  "status_category": "TURBID",
+  "timestamp": null
+}
+```
+
+Rules:
+
+- `node_id` wajib.
+- `turbidity_raw` wajib number.
+- `status_category` wajib salah satu:
+  - `CLEAR`
+  - `MILD_TURBID`
+  - `TURBID`
+  - `UNSAFE`
+- `timestamp` boleh null.
+- Backend wajib isi `received_at` dari waktu server.
+- `recorded_at` boleh null jika timestamp ESP32 null.
+- Simpan `raw_payload` untuk debugging.
+
+### Turbidity rules
+
+- `turbidity_raw` adalah ADC mentah, bukan NTU.
+- Jangan mengisi `turbidity_ntu` dengan raw value.
+- Jangan mengklaim raw ADC sebagai NTU.
+- Jangan memakai threshold NTU lama untuk data raw.
+- Kalibrasi sensor masih pending dari tim IoT.
+
+Threshold raw sementara dari tim IoT:
+
+```text
+CLEAR        : < 2500
+MILD_TURBID  : 2500 - 3000
+TURBID       : 3001 - 3200
+UNSAFE       : > 3200
+```
+
+Untuk sementara, `status_category` dihitung firmware. Backend cukup validasi dan simpan. Jika backend perlu menghitung ulang, harus menggunakan threshold raw di atas dan jelaskan di task report.
+
+### Tank payload final
+
+Backend harus siap menerima payload final berikut dari MQTT:
+
+```json
+{
+  "tank_id": "TANK-001",
+  "water_level": 523,
+  "pump_status": "ON",
+  "timestamp": null
+}
+```
+
+Rules:
+
+- `tank_id` wajib.
+- `water_level` wajib number.
+- `water_level` adalah ADC mentah.
+- Jangan menganggap `water_level` sebagai liter, persentase, atau centimeter.
+- `pump_status` enum basic: `ON` / `OFF`.
+- `timestamp` boleh null.
+- Backend wajib isi `received_at`.
+- Simpan `raw_payload`.
+
+Threshold raw sementara dari tim IoT:
+
+```text
+LOW  : <= 300
+FULL : >= 800
+```
+
+### Pump status payload final
+
+Backend harus siap menerima payload final berikut dari MQTT:
+
+```json
+{
+  "pump_id": "PUMP-001",
+  "status": "ON",
+  "source": "AUTO"
+}
+```
+
+Rules:
+
+- `pump_id` wajib.
+- `status` enum basic: `ON` / `OFF` / `ERROR` jika diperlukan.
+- `source` enum basic: `AUTO` / `MANUAL` jika tersedia.
+- Simpan `raw_payload`.
+- Backend wajib isi `received_at`.
+
+---
+
+## 11. API Rules
+
+### API prefix
+
+Semua endpoint baru harus memakai prefix:
+
+```text
+/api/v1
+```
+
+### Response standard
+
+Success response:
 
 ```json
 {
   "success": true,
-  "message": "Success message",
+  "message": "...",
   "data": {}
 }
 ```
 
-### Error Response
+Error response:
 
 ```json
 {
   "success": false,
-  "message": "Error message",
-  "error": {
-    "code": "ERROR_CODE",
-    "details": []
-  }
+  "message": "...",
+  "errors": {}
 }
 ```
 
-### Auth Success Example
+Gunakan helper response yang sudah ada jika tersedia.
 
-```json
-{
-  "success": true,
-  "message": "Login berhasil",
-  "data": {
-    "token": "jwt-token",
-    "user": {
-      "id": "uuid-or-id",
-      "name": "Budi",
-      "email": "budi@example.com",
-      "role": "WARGA"
-    }
-  }
-}
+### Validation rules
+
+- Semua endpoint baru harus punya validasi input.
+- Validasi boleh manual tanpa dependency baru jika sederhana.
+- Jangan menambah dependency validasi kecuali benar-benar diperlukan dan dijelaskan.
+- Jangan menerima payload bebas tanpa whitelist field.
+
+### Auth rules
+
+- Endpoint protected wajib memakai `authenticate`.
+- Endpoint RT/RW-only wajib memakai `authorizeRole("PENGURUS_RT_RW")`.
+- Warga hanya read-only untuk fitur yang memang boleh dibaca.
+- Endpoint IoT ingestion via MQTT tidak memakai JWT user.
+- REST fallback ingestion jika dibuat harus memakai device API key atau proteksi minimal sesuai design task. Jangan biarkan endpoint write public tanpa alasan.
+
+### REST fallback
+
+REST fallback boleh dibuat jika task mengizinkan, misalnya:
+
+```text
+POST /api/v1/sensor/reading
 ```
 
-Never return `password_hash`.
+Rules:
+
+- Gunakan payload yang sama dengan MQTT jika memungkinkan.
+- Jangan wajibkan field yang belum dikirim firmware seperti `water_temp_celsius`.
+- Jangan menjadikan REST fallback sebagai asumsi bahwa ESP32 sudah mengirim REST ke backend.
 
 ---
 
-## 9. Error Handling Rules
+## 12. Dependency Rules
 
-Use clear status codes.
+Agent tidak boleh menambah dependency tanpa alasan.
 
-### Standard Status Codes
+Exception yang diperbolehkan jika task MQTT dimulai:
 
-- `200 OK`: successful GET/login/logout.
-- `201 Created`: successful register.
-- `400 Bad Request`: validation error.
-- `401 Unauthorized`: missing/invalid token or invalid credentials.
-- `403 Forbidden`: authenticated but role not allowed.
-- `404 Not Found`: resource not found.
-- `409 Conflict`: duplicate email or unique constraint conflict.
-- `500 Internal Server Error`: unexpected server error.
+- `mqtt`
 
-### Required Error Codes
+Syarat menambah dependency:
 
-Use consistent error code strings:
+1. Jelaskan kenapa dependency dibutuhkan.
+2. Pastikan tidak ada dependency existing yang sudah memenuhi kebutuhan.
+3. Update `package.json` dan `package-lock.json` secara normal.
+4. Jelaskan perubahan dependency di summary akhir.
 
-- `VALIDATION_ERROR`
-- `EMAIL_ALREADY_EXISTS`
-- `INVALID_CREDENTIALS`
-- `TOKEN_MISSING`
-- `TOKEN_INVALID`
-- `FORBIDDEN`
-- `NOT_FOUND`
-- `CONFLICT`
-- `INTERNAL_SERVER_ERROR`
+Jangan menambah:
 
-### Error Handling Rules
+- Bull
+- Redis
+- FCM package
+- PDF package
+- WebSocket package
+- ORM besar
+- Validation framework
 
-- Do not leak raw database errors to API response.
-- Log enough information for debugging, but do not expose secrets.
-- Use centralized error handling if possible.
-- Keep error messages understandable for frontend.
+kecuali task eksplisit meminta dan user approve.
 
 ---
 
-## 10. Security Rules
+## 13. Workflow Rules for Agent
 
-### Must Follow
+Saat menerima task baru, agent wajib mengikuti alur ini.
 
-- Never commit `.env`.
-- Always provide `.env.example`.
-- Store JWT secret in environment variable.
-- Hash passwords with bcrypt.
-- Never return `password_hash` in API response.
-- Validate input before database operation.
-- Enable CORS using environment-based origin.
-- Do not hardcode database credentials.
-- Do not hardcode JWT secret.
+### Step 1 — Read context
 
-### Optional / Future Improvement
+Baca terlebih dahulu:
 
-- Rate limiting.
-- Request sanitization package.
-- Token blacklist.
-- Refresh token.
-- Device API key for IoT.
-- Audit logs.
+1. `AGENTS.md`
+2. `docs/TECHNICAL_DESIGN_BACKEND_FINAL.md`
+3. Task Jira terkait jika tersedia
+4. File yang relevan dengan task
+5. Existing migration/schema
+6. Existing routes/controllers/services/repositories
 
-Do not implement optional items unless explicitly requested.
+### Step 2 — Do not code immediately
+
+Sebelum coding, agent wajib menjelaskan:
+
+1. Pemahaman task
+2. Scope yang akan dikerjakan
+3. Out of scope task tersebut
+4. File yang akan dibaca
+5. File yang akan dibuat
+6. File yang akan diubah
+7. Risiko teknis
+8. Rencana implementasi singkat
+
+Jika user belum approve, jangan coding.
+
+### Step 3 — Implement only approved scope
+
+Saat sudah di-approve:
+
+- Implementasikan hanya scope task itu.
+- Jangan membuat fitur di luar task.
+- Jangan rewrite setup.
+- Jangan rewrite auth/RBAC.
+- Jangan edit migration lama.
+- Jangan membuat endpoint marketplace/mitra.
+- Jangan menebak credential.
+- Jangan hardcode secret.
+
+### Step 4 — Post-implementation report
+
+Setelah selesai, agent wajib menjelaskan:
+
+1. File yang dibuat
+2. File yang diubah
+3. Dependency baru jika ada
+4. Migration baru jika ada
+5. Endpoint baru jika ada
+6. MQTT topic yang dipakai jika ada
+7. Env baru jika ada
+8. Manual test langkah demi langkah
+9. Acceptance criteria yang terpenuhi
+10. Risiko/TODO
+11. Contoh komentar Jira yang bisa dipaste
 
 ---
 
-## 11. Testing Rules
+## 14. Manual Testing Rules
 
-Use manual testing with Postman or Thunder Client for Sprint 1.
+Setiap task backend harus menyertakan manual test.
 
-### Required Manual Tests
+### Minimum manual test categories
 
-1. Health check success.
-2. Register success.
-3. Register duplicate email returns 409.
-4. Login success returns JWT.
-5. Login with wrong password returns 401.
-6. Access `/api/auth/me` without token returns 401.
-7. Access `/api/auth/me` with valid token returns user.
-8. Access role-protected route with wrong role returns 403.
-9. Access role-protected route with correct role returns 200.
-10. Confirm `password_hash` never appears in response.
+- Health check
+- Auth protected endpoint test jika endpoint protected
+- Role access test jika endpoint role-based
+- Positive case
+- Negative case
+- Invalid payload case
+- Empty data case
+- Database persistence check jika task menyimpan data
+- MQTT mock payload test jika task menggunakan MQTT
 
-### Testing Output
+### MQTT mock test
 
-After coding, agent must explain:
+Jika task menggunakan MQTT, test minimal harus mencakup:
 
-- which endpoints to test,
-- request body examples,
-- expected status codes,
-- expected success/error response.
+- Server start saat `MQTT_ENABLED=false`
+- Server start saat `MQTT_ENABLED=true` dengan env valid
+- Mock publish valid JSON
+- Mock publish invalid JSON
+- Mock publish missing required field
+- Data valid tersimpan ke database
+- `received_at` terisi oleh backend
+- `raw_payload` tersimpan
+
+### Production smoke test
+
+Untuk deploy task:
+
+- Health check production
+- Auth login production
+- CORS frontend production
+- Quality current endpoint production
+- Environment variable check tanpa membocorkan secret
 
 ---
 
-## 12. Git/Commit Rules
+## 15. Jira Comment Rules
 
-### Commit Style
+Setiap task harus menghasilkan komentar Jira siap paste.
 
-Use clear and meaningful commits.
+Format minimal:
 
-Recommended examples:
+```text
+Progress update — [ISSUE_KEY]
 
-```txt
-chore: initialize express backend project
-chore: configure environment and database connection
-feat: add sprint 1 database schema
-feat: add auth register and login
-feat: add jwt authentication middleware
-feat: add rbac role guard
-feat: add protected route examples
+Scope:
+- ...
+
+Completed:
+- ...
+
+Testing:
+- ...
+
+Notes:
+- ...
+
+Out of scope:
+- ...
 ```
 
-### Git Rules
+Untuk Done update:
 
-- Do not commit `.env`.
-- Do commit `.env.example`.
-- Do not make one giant commit if several logical changes are made.
-- Keep commit messages meaningful.
-- Do not rewrite unrelated files.
-- Do not change frontend files unless explicitly requested.
+```text
+Done update — [ISSUE_KEY]
 
----
+Task completed according to scope.
 
-## 13. Forbidden Actions
+Output:
+- ...
 
-The AI agent must not do the following without explicit permission:
+Manual testing:
+- PASS ...
 
-- Add new dependencies.
-- Change tech stack.
-- Build dashboard kualitas air.
-- Build alert otomatis full.
-- Implement FCM.
-- Implement MQTT relay full.
-- Implement WebSocket.
-- Implement billing calculation.
-- Implement PDF export.
-- Implement marketplace tukang full.
-- Implement tracking mitra.
-- Implement GPS, NFC, ESP32-CAM, PIR, or ML features.
-- Implement production deployment.
-- Create overly complex architecture.
-- Add microservices.
-- Add queue system.
-- Add Redis.
-- Add Docker unless requested.
-- Store secrets in code.
-- Return password hash in API response.
-- Rename role values without confirmation.
-- Modify Jira/task docs automatically.
-- Make broad refactors unrelated to Sprint 1.
+GitHub:
+[paste commit/PR link]
 
-If a requested task appears outside Sprint 1, agent must stop and ask for confirmation.
-
----
-
-## 14. Workflow Rules for AI Agent
-
-### Before Coding
-
-The AI agent must first explain:
-
-1. What files will be created or changed.
-2. What task is being addressed: `SYNC-59` or `SYNC-60`.
-3. What implementation steps will be taken.
-4. Any assumptions being made.
-5. Any dependencies or missing information.
-
-Do not start coding before giving a concise implementation plan.
-
-### During Coding
-
-The AI agent must:
-
-- Stay within Sprint 1 scope.
-- Prefer simple and readable code.
-- Keep controllers thin.
-- Keep services focused.
-- Keep database queries organized.
-- Use consistent response format.
-- Use clear naming.
-- Avoid unnecessary abstractions.
-- Avoid adding dependency without permission.
-
-### After Coding
-
-The AI agent must report:
-
-1. Files created.
-2. Files modified.
-3. What was implemented.
-4. How to run the backend.
-5. How to test manually with Postman.
-6. Known limitations.
-7. Next recommended step.
-
-### If Blocked
-
-The AI agent must clearly state:
-
-- what is blocked,
-- why it is blocked,
-- what information is needed,
-- who should be asked,
-- safe temporary fallback if available.
-
-### If Asked to Do More Than Sprint 1
-
-The AI agent must respond with a scope warning:
-
-```txt
-This request is outside Sprint 1 backend scope. Sprint 1 is limited to backend foundation, database schema, auth JWT, and RBAC. Please confirm if you still want to proceed.
+Notes:
+- ...
 ```
 
 ---
 
-## Final Instruction
+## 16. Forbidden Actions
 
-For Sprint 1, prioritize:
+Agent dilarang melakukan hal berikut:
 
-1. Backend project setup.
-2. PostgreSQL connection.
-3. Database schema.
-4. Auth API.
-5. JWT middleware.
-6. RBAC middleware.
-7. Protected route examples.
-8. README and manual testing notes.
+- Rewrite project
+- Rewrite setup SYNC-59
+- Rewrite auth SYNC-60
+- Menghapus role lama
+- Menghapus migration lama
+- Mengedit migration lama yang sudah berjalan
+- Menghapus tabel lama
+- Drop database
+- Recreate database tanpa instruksi eksplisit
+- Membuat fitur marketplace
+- Membuat endpoint Mitra
+- Membuat service request tukang
+- Membuat tracking mitra
+- Membuat service report
+- Membuat rating mitra
+- Membuat NFC check-in
+- Membuat PIR presence
+- Membuat GPS tracking
+- Membuat Dashboard Admin Sistem baru
+- Menganggap raw sensor sebagai NTU
+- Menganggap `water_level` raw sebagai liter/persentase/centimeter
+- Mengisi `turbidity_ntu` dengan `turbidity_raw`
+- Menggunakan topic lama `water/...` sebagai final topic
+- Menggunakan EMQX public sebagai final MQTT broker
+- Menggunakan field `action` untuk command final
+- Hardcode credential
+- Commit `.env`
+- Menampilkan credential di log
+- Menambah dependency tanpa alasan
+- Membuat FCM/Bull/Redis production jika task hanya meminta basic alert
+- Membuat WebSocket jika task tidak meminta
+- Membuat PDF export jika task tidak meminta
+- Membuat ML real integration jika model IS belum tersedia
 
-Do not optimize prematurely. Do not build advanced features. Make the backend foundation clean, working, and easy for the team to continue.
+---
+
+## 17. Guardrails per Upcoming Task
+
+### SYNC-62 / SD-04 Guardrails
+
+Do:
+
+- Implement MQTT quality ingestion only if approved.
+- Subscribe only `airbersih/sensor/NODE-001/quality` unless task expands scope.
+- Store `turbidity_raw`, `status_category`, `raw_payload`, `received_at`.
+- Provide quality current/history API.
+
+Do not:
+
+- Implement alert automation.
+- Implement tank/pump/billing.
+- Treat raw as NTU.
+- Require `water_temp_celsius`.
+
+### SYNC-63 / SD-05 Guardrails
+
+Do:
+
+- Create basic alert logic.
+- Let Pengurus RT/RW update alert status.
+- Keep Warga read-only.
+
+Do not:
+
+- Add FCM/Bull/Redis production unless approved.
+- Add marketplace notification.
+
+### SYNC-64 / SD-06 Guardrails
+
+Do:
+
+- Store tank raw water level.
+- Use `received_at` server time.
+- Provide tank read API.
+
+Do not:
+
+- Convert raw ADC to liter/percentage unless calibration is provided.
+
+### SYNC-67 / SD-08 Guardrails
+
+Do:
+
+- Publish MQTT command with `command` field.
+- Protect pump control with `PENGURUS_RT_RW`.
+- Log operation.
+
+Do not:
+
+- Use `action` field.
+- Let Warga control pump.
+
+### SYNC-68 / SD-09 Guardrails
+
+Do:
+
+- Build billing basic.
+- Keep calculation transparent and simple.
+
+Do not:
+
+- Build PDF export unless approved.
+- Build complex payment flow.
+
+---
+
+## 18. Final Reminder
+
+Agent harus selalu menjaga backend tetap sederhana, modular, dan sesuai MVP final. Fokus utama adalah membuat fitur 1–6 berjalan, terintegrasi dengan IoT final, aman secara role, dan siap didemokan.
+
+Jika menemukan konflik antara file lama dan arah final, jangan menebak. Jelaskan konflik tersebut, pilih source of truth terbaru, dan minta approval sebelum mengubah kode.
