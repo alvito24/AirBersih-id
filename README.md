@@ -656,3 +656,129 @@ Unknown tank history should return `404 TANK_NOT_FOUND`:
 curl http://localhost:5000/api/v1/tanks/UNKNOWN/history ^
   -H "Authorization: Bearer <WARGA_OR_PENGURUS_TOKEN>"
 ```
+
+## SYNC-66 Soil Heatmap and Prediction API
+
+SYNC-66 provides protected soil heatmap and prediction responses for `PENGURUS_RT_RW` only. The Intelligence System model is not available yet, so prediction uses deterministic mock data with `source = MOCK` and `model_status = PENDING`. This is not an accuracy claim and does not load `.pkl` or `.joblib` model files.
+
+### Required Migration
+
+Run the soil schema migration after earlier migrations:
+
+```cmd
+dotenv -e .env -- psql -v ON_ERROR_STOP=1 -f src/database/migrations/003_create_soil_schema.sql
+```
+
+The migration only creates:
+
+- `soil_sensor_nodes`
+- `soil_moisture_readings`
+
+It does not edit or remove older tables.
+
+### Optional Soil Seed
+
+Seed a soil node and reading if you want heatmap data from DB instead of mock response:
+
+```sql
+INSERT INTO soil_sensor_nodes (node_code, location_name, latitude, longitude, depth_cm)
+VALUES ('SOIL-NODE-001', 'Demo Soil Node 001', -6.2146200, 106.8451300, 10)
+ON CONFLICT (node_code) DO NOTHING;
+
+INSERT INTO soil_moisture_readings (node_id, moisture_percentage, raw_payload, recorded_at)
+SELECT id, 42.5, '{"source":"manual_seed"}'::jsonb, NOW()
+FROM soil_sensor_nodes
+WHERE node_code = 'SOIL-NODE-001';
+```
+
+`moisture_percentage` is constrained to 0-100. Soil status is:
+
+- `LOW` if moisture is below 35
+- `HIGH` if moisture is above 70
+- `NORMAL` otherwise
+
+`absorption_index = 100 - moisture_percentage` is a deterministic placeholder calculation, not an ML result.
+
+### Soil Endpoints
+
+Both endpoints require JWT role `PENGURUS_RT_RW`.
+
+- `GET /api/v1/soil/heatmap`
+- `GET /api/v1/soil/prediction`
+
+WARGA, ADMIN_SISTEM, and MITRA_TUKANG should receive `403 FORBIDDEN`.
+
+### Heatmap Test
+
+```cmd
+curl http://localhost:5000/api/v1/soil/heatmap ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>"
+```
+
+Expected response shape:
+
+```json
+{
+  "success": true,
+  "message": "Soil heatmap retrieved",
+  "data": {
+    "items": [
+      {
+        "node_id": "SOIL-NODE-001",
+        "latitude": -6.21462,
+        "longitude": 106.84513,
+        "moisture_percentage": 42.5,
+        "absorption_index": 57.5,
+        "status": "NORMAL",
+        "recorded_at": "...",
+        "received_at": "..."
+      }
+    ],
+    "total": 1,
+    "source": "DB",
+    "model_status": "PENDING"
+  }
+}
+```
+
+If the DB has no soil readings, response uses deterministic mock points and returns `source = MOCK`.
+
+### Prediction Test
+
+```cmd
+curl http://localhost:5000/api/v1/soil/prediction ^
+  -H "Authorization: Bearer <PENGURUS_TOKEN>"
+```
+
+Expected response shape:
+
+```json
+{
+  "success": true,
+  "message": "Soil prediction retrieved",
+  "data": {
+    "days": [
+      {
+        "date": "YYYY-MM-DD",
+        "predicted_moisture_percentage": 44
+      }
+    ],
+    "source": "MOCK",
+    "model_status": "PENDING",
+    "note": "Prediction is deterministic placeholder until IS model is available."
+  }
+}
+```
+
+### WARGA Forbidden Test
+
+```cmd
+curl http://localhost:5000/api/v1/soil/heatmap ^
+  -H "Authorization: Bearer <WARGA_TOKEN>"
+```
+
+Expected: `403 FORBIDDEN`.
+
+### BMKG Placeholder
+
+BMKG adapter is a placeholder in SYNC-66. It does not make external calls, does not require an API key, and does not add dependencies. Production BMKG integration should wait until the API contract and credential handling are clear.

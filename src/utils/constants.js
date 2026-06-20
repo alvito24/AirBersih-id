@@ -31,6 +31,23 @@ const TANK_RAW_STATUS = {
   FULL: 'FULL',
 };
 
+const SOIL_STATUS = {
+  LOW: 'LOW',
+  NORMAL: 'NORMAL',
+  HIGH: 'HIGH',
+};
+
+const MODEL_SOURCE = {
+  DB: 'DB',
+  MOCK: 'MOCK',
+  ML_MODEL: 'ML_MODEL',
+};
+
+const MODEL_STATUS = {
+  PENDING: 'PENDING',
+  READY: 'READY',
+};
+
 const ALERT_TYPE = {
   WATER_QUALITY: 'WATER_QUALITY',
 };
@@ -69,6 +86,9 @@ module.exports = {
   READING_SOURCE,
   PUMP_STATUS,
   TANK_RAW_STATUS,
+  SOIL_STATUS,
+  MODEL_SOURCE,
+  MODEL_STATUS,
   ALERT_TYPE,
   ALERT_LEVEL,
   ALERT_STATUS,
